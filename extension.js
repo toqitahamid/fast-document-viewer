@@ -5,6 +5,7 @@ const { createRenderer } = require('./src/render');
 const VIEW_TYPE = 'paperMd.viewer';
 const FOLLOW_TYPE = 'paperMd.follow';
 const isMd = (uri) => /\.(md|markdown)$/i.test(uri.path);
+const isPdf = (uri) => /\.pdf$/i.test(uri.path);
 
 function nonce() {
   let s = '';
@@ -72,12 +73,13 @@ function shell(ctx, wv, bodyHtml, opts) {
   const kcss = a.katexCss.replace(/url\(fonts\//g, `url(${fontsBase}/`);
   const custom = vscode.workspace.getConfiguration('paperMd').get('customCss') || '';
   const noStyleEnd = (s) => s.replace(/<\/style/gi, '');
+  const mediaUri = (f) => wv.asWebviewUri(vscode.Uri.joinPath(ctx.extensionUri, 'media', 'pdfjs', f)).toString();
   const button = opts.editButton ? '<button id="edit-btn">Edit as text</button>' : '';
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${wv.cspSource} https: data:; style-src ${wv.cspSource} 'unsafe-inline'; font-src ${wv.cspSource}; script-src 'nonce-${n}';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${wv.cspSource} https: data: blob:; style-src ${wv.cspSource} 'unsafe-inline'; font-src ${wv.cspSource}; script-src 'nonce-${n}' ${wv.cspSource}; worker-src blob:; connect-src ${wv.cspSource};">
 <style>${noStyleEnd(kcss)}</style><style>${noStyleEnd(a.paperCss)}</style>
 <style>${noStyleEnd(custom)}</style></head>
-<body data-key="${esc(opts.key || '')}">${button}<div id="content">${bodyHtml}</div>
+<body data-key="${esc(opts.key || '')}" data-pdfjs="${mediaUri('pdf.min.js')}" data-pdfworker="${mediaUri('pdf.worker.min.js')}">${button}<div id="pdfbar" hidden><button id="pdf-out" title="Zoom out">&minus;</button><button id="pdf-in" title="Zoom in">+</button><button id="pdf-fit" title="Fit width">Fit</button><span id="pdf-page"></span></div><div id="pdf" hidden></div><div id="content">${bodyHtml}</div>
 <script nonce="${n}">${a.mainJs.replace(/<\/script/gi, '')}</script></body></html>`;
 }
 
@@ -145,6 +147,8 @@ class FollowPanel {
     this.timer = undefined;
     this.userClosed = false;
     this.asText = new Set(); // documents the user chose to read as text
+    this.pdfBusy = new Set(); // PDF keys being loaded (re-entry guard)
+    this.lastPdf = { key: '', at: 0 }; // duplicate guard for tab events
   }
 
   replaceMode() {
@@ -176,6 +180,10 @@ class FollowPanel {
         log(`panel created: DOM ready ${m.t.dom - t0} ms, first paint ${m.t.paint - t0} ms (one-time cost)`);
       } else if (m.type === 'rendered') {
         log(`panel switch ${this.doc ? this.doc.uri.path.split('/').pop() : ''}: shown ${m.at - m.sent} ms after send (render ${this.lastRenderMs} ms)`);
+      } else if (m.type === 'pdfShown') {
+        log(`pdf ${m.name || ''}: first page shown ${m.at - m.sent} ms after send (${m.pages} pages)`);
+      } else if (m.type === 'pdfError') {
+        log(`pdf error: ${m.message}`);
       } else if (m.type === 'edit' && this.doc) {
         // Read this file as text: stop replacing its text tab until it is closed.
         const uri = this.doc.uri;
@@ -220,6 +228,55 @@ class FollowPanel {
     const html = renderDoc(wv, document);
     this.lastRenderMs = Date.now() - t;
     wv.postMessage({ type: 'render', key: document.uri.toString(), html, sent: Date.now() });
+  }
+
+  pdfMode() {
+    const c = vscode.workspace.getConfiguration('paperMd');
+    return !!c.get('pdf.enabled') && !!c.get('followPanel.replaceTextTab');
+  }
+
+  // Show a PDF in the follow panel, then close its placeholder tab.
+  async showPdf(uri, column) {
+    const key = uri.toString();
+    const now = Date.now();
+    if (this.pdfBusy.has(key) || (this.lastPdf.key === key && now - this.lastPdf.at < 1500)) return;
+    this.pdfBusy.add(key);
+    const name = uri.path.split('/').pop();
+    try {
+      if (!this.panel) {
+        if (this.userClosed || !vscode.workspace.getConfiguration('paperMd').get('followPanel.autoOpen')) {
+          log(`pdf ${name}: no panel (closed by user or autoOpen off)`);
+          return;
+        }
+        log(`pdf ${name}: opening panel in place`);
+        this.open(undefined, false, column);
+      }
+      const t0 = Date.now();
+      const data = await vscode.workspace.fs.readFile(uri);
+      const readMs = Date.now() - t0;
+      if (!this.panel) return; // panel closed while reading
+      log(`pdf ${name}: ${Math.round(data.byteLength / 1024)} KB, read ${readMs} ms`);
+      this.lastPdf = { key, at: Date.now() };
+      this.doc = undefined;
+      this.panel.title = 'Paper: ' + name;
+      this.panel.reveal(column || this.panel.viewColumn, false);
+      this.panel.webview.postMessage({ type: 'pdf', key, name, data, sent: Date.now() });
+      this.closeTextTabs(uri);
+    } catch (e) {
+      log(`pdf ${name}: failed: ${e && e.message}`);
+    } finally {
+      this.pdfBusy.delete(key);
+    }
+  }
+
+  // A binary .pdf does not raise onDidChangeActiveTextEditor; watch the active tab instead.
+  checkTabs() {
+    if (!this.pdfMode()) return;
+    const g = vscode.window.tabGroups.activeTabGroup;
+    const tab = g && g.activeTab;
+    if (tab && tab.input instanceof vscode.TabInputText && isPdf(tab.input.uri)) {
+      this.showPdf(tab.input.uri, g.viewColumn);
+    }
   }
 
   onEditorChange(editor) {
@@ -269,7 +326,9 @@ function activate(ctx) {
     vscode.workspace.onDidCloseTextDocument((d) => follow.onDocClose(d)),
     vscode.window.tabGroups.onDidChangeTabs((e) => {
       for (const tab of e.closed) if (tab.input instanceof vscode.TabInputText) follow.onDocClose(tab.input);
+      follow.checkTabs();
     }),
+    vscode.window.tabGroups.onDidChangeTabGroups(() => follow.checkTabs()),
     vscode.commands.registerCommand('paperMd.openFollowPanel', () => follow.open(activeMd(), true)),
     vscode.commands.registerCommand('paperMd.openAsText', (uri) => {
       uri = uri || (vscode.window.activeTextEditor && vscode.window.activeTextEditor.document.uri)
@@ -279,6 +338,7 @@ function activate(ctx) {
   );
   // A Markdown text editor may already be active when the extension starts.
   follow.onEditorChange(vscode.window.activeTextEditor);
+  follow.checkTabs();
   log(`activated in ${Date.now() - ta} ms`);
 }
 function deactivate() {}

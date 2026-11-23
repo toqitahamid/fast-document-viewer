@@ -31,3 +31,13 @@ body { margin: 0; background: #fff; color: #000; }
 .hljs-string, .hljs-attr, .hljs-name { color: #0b6e4f; } .hljs-number, .hljs-built_in, .hljs-title, .hljs-type { color: #0044aa; }
 #edit-btn { position: fixed; top: 8px; right: 12px; z-index: 10; font: 12px sans-serif; background: #f0f0f0; color: #000; border: 1px solid #bbb; border-radius: 3px; padding: 3px 8px; cursor: pointer; opacity: 0.7; }
 #edit-btn:hover { opacity: 1; }
+html.pdf-mode, html.pdf-mode body { background: #525659; }
+#pdf { position: relative; display: flex; flex-direction: column; align-items: center; width: max-content; min-width: 100%; box-sizing: border-box; padding: 16px; gap: 12px; color: #eee; font: 14px sans-serif; }
+#pdf[hidden], #pdfbar[hidden] { display: none; }
+#pdf .pdf-page { position: relative; flex: none; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.5); }
+#pdf .pdf-page canvas { display: block; }
+#pdfbar { position: fixed; top: 8px; right: 12px; z-index: 10; display: flex; gap: 4px; align-items: center; font: 12px sans-serif; background: rgba(40,40,40,0.85); color: #eee; border-radius: 4px; padding: 3px 6px; opacity: 0.75; }
+#pdfbar:hover { opacity: 1; }
+#pdfbar button { font: 12px sans-serif; background: #666; color: #fff; border: 0; border-radius: 3px; padding: 2px 8px; cursor: pointer; }
+#pdfbar button:hover { background: #888; }
+#pdf-page { min-width: 52px; text-align: center; }

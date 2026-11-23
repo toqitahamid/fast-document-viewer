@@ -40,11 +40,22 @@ Each new webview tab costs about 1 s in Cursor and VS Code, before any extension
 2. Run **Paper MD: Open Follow Panel**, or set `"paperMd.followPanel.autoOpen": true` to open it automatically.
 3. For one tab instead of a side-by-side view, also set `"paperMd.followPanel.replaceTextTab": true`. The panel then takes the place of each Markdown text tab you open. Its **Edit as text** button reopens the current file as text.
 
+## PDF
+
+The follow panel can also show `.pdf` files, so a PDF opens in the same reused panel instead of a new tab.
+
+1. Set `"paperMd.followPanel.replaceTextTab": true` and `"paperMd.followPanel.autoOpen": true`.
+2. Set `"paperMd.pdf.enabled": true`.
+3. Add `"*.pdf": "default"` to `workbench.editorAssociations`, so Cursor opens its own editor first. The extension then shows the file in the panel and closes that tab.
+
+The panel fits the page width and has zoom buttons and a page counter. It remembers the scroll position and zoom of each PDF. The PDF must still be copied over SSH once each time you open it. pdf.js 3.11.174 (Apache 2.0) is bundled and loads on the first PDF only.
+
 ## Settings
 
 - `paperMd.customCss` (string): CSS added after the built-in paper style.
 - `paperMd.followPanel.autoOpen` (boolean, default `false`): open the follow panel when a Markdown text editor becomes active.
 - `paperMd.followPanel.replaceTextTab` (boolean, default `false`): show the follow panel in place of the Markdown text tab.
+- `paperMd.pdf.enabled` (boolean, default `false`): show `.pdf` files in the follow panel. Needs `replaceTextTab`.
 
 Open-time measurements are written to **View > Output > Paper MD**.
 

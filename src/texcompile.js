@@ -56,6 +56,21 @@ async function findExternal(vscode, rootFileUri, o) {
     if (!inside(p) && p !== rootFileUri.path) { /* an external file is itself a target already */ }
     const t = stripComments(raw);
     let m;
+    // '% !TEX def = \def\x{path}' in the root: values that look like paths are
+    // usually \input later (\input{\x}); mirror the folder that holds them.
+    if (p === rootFileUri.path) {
+      const head = raw.split('\n').slice(0, 30).join('\n');
+      for (const re = /^\s*%\s*!\s*TEX\s+def\s*=\s*(.+)$/gim; (m = re.exec(head));) {
+        for (const re2 = /\\(?:def|gdef|edef|newcommand|renewcommand)\s*\{?\\[A-Za-z@]+\}?\s*\{([^{}]+)\}/g, line = m[1]; (m = re2.exec(line));) {
+          const v = m[1].trim();
+          if (!v || /\s/.test(v) || /^\d/.test(v)) continue;
+          const full = res(v);
+          addExt('tree', P.dirname(full));
+          if (d < maxDepth) follow(v, ['.tex'], d);
+        }
+        m = null;
+      }
+    }
     const argRe = (cmds) => new RegExp('\\\\(?:' + cmds + ')\\s*(?:\\[[^\\]]*\\])?\\s*\\{([^}]*)\\}', 'g');
     // .tex inputs
     for (const re = argRe('input|include|subfile|subfileinclude'); (m = re.exec(t));) {
@@ -359,7 +374,12 @@ function compile(rootFile, cacheDir, o) {
       let banner;
       if (pe) banner = pe.banner;
       else if (/not found|No such file|not recognized|Cannot find/i.test(out) && !logText) banner = noTex + '\n' + out.trim().split('\n').slice(-3).join('\n');
-      else banner = 'latexmk failed (exit ' + code + '). ' + out.trim().split('\n').slice(-4).join('\n');
+      else {
+        // No usable .log: look for the error in latexmk's own output instead of its generic advice.
+        const po = parseLog(out, {});
+        const key = out.split(/\r?\n/).filter((l) => /^! |:\d+: |^Latexmk: .*(?:[Ee]rror|not found|[Mm]issing|[Ff]ailed|[Bb]ad option|[Uu]nknown)/.test(l));
+        banner = 'latexmk failed (exit ' + code + '). ' + (po ? po.banner : key.length ? key.slice(0, 4).join('\n') : out.trim().split('\n').slice(-4).join('\n'));
+      }
       if (usesBiblatex(rootFile) && /biber/i.test(out + logText) && /not found|Can't locate|fail|could not/i.test(out + logText)) {
         banner += '\nThis document uses biblatex with biber, and biber is missing. Copy a current .bbl file next to the root document, or install biber.';
       }

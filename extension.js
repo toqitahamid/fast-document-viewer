@@ -12,6 +12,20 @@ function nonce() {
 }
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 
+let cachedAssets;
+function assets(ctx) {
+  if (!cachedAssets) {
+    const fs = require('fs');
+    const p = (f) => vscode.Uri.joinPath(ctx.extensionUri, 'media', f).fsPath;
+    cachedAssets = {
+      katexCss: fs.readFileSync(p('katex.css'), 'utf8'),
+      paperCss: fs.readFileSync(p('paper.css'), 'utf8'),
+      mainJs: fs.readFileSync(p('main.js'), 'utf8'),
+    };
+  }
+  return cachedAssets;
+}
+
 class Provider {
   constructor(ctx) { this.ctx = ctx; }
 
@@ -43,16 +57,18 @@ class Provider {
     const first = html();
     const renderMs = Date.now() - tr0;
     const n = nonce();
-    const css = wv.asWebviewUri(vscode.Uri.joinPath(media, 'paper.css'));
-    const kcss = wv.asWebviewUri(vscode.Uri.joinPath(media, 'katex.css'));
-    const js = wv.asWebviewUri(vscode.Uri.joinPath(media, 'main.js'));
+    // Inline CSS and script: separate resource requests delay DOM ready by about 1 s in remote windows.
+    const a = assets(this.ctx);
+    const fontsBase = wv.asWebviewUri(vscode.Uri.joinPath(media, 'fonts')).toString();
+    const kcss = a.katexCss.replace(/url\(fonts\//g, `url(${fontsBase}/`);
     const custom = vscode.workspace.getConfiguration('paperMd').get('customCss') || '';
+    const noStyleEnd = (s) => s.replace(/<\/style/gi, '');
     wv.html = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${wv.cspSource} https: data:; style-src ${wv.cspSource} 'unsafe-inline'; font-src ${wv.cspSource}; script-src 'nonce-${n}';">
-<link rel="stylesheet" href="${kcss}"><link rel="stylesheet" href="${css}">
-<style>${custom.replace(/<\/style/gi, '')}</style></head>
+<style>${noStyleEnd(kcss)}</style><style>${noStyleEnd(a.paperCss)}</style>
+<style>${noStyleEnd(custom)}</style></head>
 <body><button id="edit-btn">Edit as text</button><div id="content">${first}</div>
-<script nonce="${n}" src="${js}"></script></body></html>`;
+<script nonce="${n}">${a.mainJs.replace(/<\/script/gi, '')}</script></body></html>`;
 
     let timer;
     const subs = [

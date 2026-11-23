@@ -1,6 +1,6 @@
 {
   "name": "paper-md-viewer",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "Fast read-only Markdown viewer with a printed-paper look and KaTeX math.",
   "main": "./extension.js",
   "license": "MIT",
@@ -62,7 +62,9 @@
     "commands": [
       {
         "command": "paperMd.openAsText",
-        "title": "Paper MD: Open as Text"
+        "title": "Paper MD: Open as Text",
+        "icon": "$(edit)",
+        "shortTitle": "Edit"
       },
       {
         "command": "paperMd.openFollowPanel",
@@ -75,6 +77,12 @@
       {
         "command": "paperMd.openTexLog",
         "title": "Paper MD: Open TeX Log"
+      },
+      {
+        "command": "paperMd.showPaper",
+        "title": "Paper MD: Show Paper View",
+        "shortTitle": "Paper View",
+        "icon": "$(open-preview)"
       }
     ],
     "configuration": {
@@ -130,6 +138,26 @@
           "description": "Compile mode copies the root's folder (TeX-related files only) to local disk. Stop and report when the copy would be larger than this many MB."
         }
       }
+    },
+    "menus": {
+      "editor/title": [
+        {
+          "command": "paperMd.openAsText",
+          "when": "activeWebviewPanelId == 'paperMd.follow' || activeWebviewPanelId == 'paperMd.html'",
+          "group": "navigation"
+        },
+        {
+          "command": "paperMd.showPaper",
+          "when": "!activeWebviewPanelId && resourceExtname =~ /^\\.(md|markdown|tex|html?)$/",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "paperMd.showPaper",
+          "when": "resourceExtname =~ /^\\.(md|markdown|tex|html?)$/"
+        }
+      ]
     }
   }
 }

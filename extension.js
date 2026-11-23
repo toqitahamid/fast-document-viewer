@@ -680,7 +680,23 @@ function activate(ctx) {
       // From the HTML panel: open its page as text and keep it as text.
       const h = follow.htmlPanel;
       if (!uri && h.panel && h.panel.active && h.uri) { uri = h.uri; follow.asText.add(uri.toString()); }
-      if (uri) vscode.commands.executeCommand('vscode.openWith', uri, 'default');
+      // From the Paper panel (title-bar Edit button): open the shown .md/.tex as text, keep it as text.
+      if (!uri && follow.panel && follow.panel.active && follow.current && follow.current.kind !== 'pdf') {
+        uri = follow.current.uri; follow.asText.add(uri.toString());
+      }
+      if (uri) {
+        const col = (follow.panel && follow.panel.active && follow.panel.viewColumn) || (h.panel && h.panel.active && h.panel.viewColumn) || undefined;
+        vscode.window.showTextDocument(uri, { viewColumn: col, preview: false });
+      }
+    }),
+    // From a .md/.tex/.html text tab (title-bar preview button): back to the rendered view.
+    vscode.commands.registerCommand('paperMd.showPaper', (uri) => {
+      const ed = vscode.window.activeTextEditor;
+      const doc = ed && (!uri || ed.document.uri.toString() === uri.toString()) ? ed.document : undefined;
+      if (!doc) return;
+      follow.asText.delete(doc.uri.toString());
+      follow.userClosed = false;
+      follow.onEditorChange(ed);
     }),
   );
   // A Markdown text editor may already be active when the extension starts.

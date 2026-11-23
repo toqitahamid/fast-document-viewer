@@ -3,6 +3,8 @@ const vscode = require('vscode');
 const { createRenderer } = require('./src/render');
 
 const VIEW_TYPE = 'paperMd.viewer';
+const FOLLOW_TYPE = 'paperMd.follow';
+const isMd = (uri) => /\.(md|markdown)$/i.test(uri.path);
 
 function nonce() {
   let s = '';
@@ -11,6 +13,13 @@ function nonce() {
   return s;
 }
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+
+let channel;
+const openTimes = new Map();
+function log(msg) {
+  if (!channel) channel = vscode.window.createOutputChannel('Paper MD');
+  channel.appendLine(`[${new Date().toISOString().slice(11, 23)}] ${msg}`);
+}
 
 let cachedAssets;
 function assets(ctx) {
@@ -26,6 +35,67 @@ function assets(ctx) {
   return cachedAssets;
 }
 
+const dirOf = (uri) => vscode.Uri.joinPath(uri, '..');
+
+function rootsFor(ctx, docUri) {
+  const roots = [vscode.Uri.joinPath(ctx.extensionUri, 'media'), ...(vscode.workspace.workspaceFolders || []).map((f) => f.uri)];
+  if (docUri) roots.push(dirOf(docUri));
+  return roots;
+}
+
+function inRoots(roots, uri) {
+  return roots.some((r) => r.scheme === uri.scheme && r.authority === uri.authority &&
+    (uri.path === r.path || uri.path.startsWith(r.path.endsWith('/') ? r.path : r.path + '/')));
+}
+
+// Render a document to HTML; image paths resolve against the document's folder.
+function renderDoc(wv, document) {
+  const docDir = dirOf(document.uri);
+  const render = createRenderer({
+    resolveImage: (src) => {
+      try {
+        const clean = decodeURIComponent(src.split(/[?#]/)[0]);
+        const uri = clean.startsWith('/') ? document.uri.with({ path: clean }) : vscode.Uri.joinPath(docDir, clean);
+        return wv.asWebviewUri(uri).toString();
+      } catch (e) { return null; }
+    },
+  });
+  try { return render(document.getText()); }
+  catch (e) { return '<pre>Render error: ' + esc(String(e && e.message)) + '</pre>'; }
+}
+
+// Page shell. CSS and script are inline: separate resource requests do not load faster.
+function shell(ctx, wv, bodyHtml, opts) {
+  const n = nonce();
+  const a = assets(ctx);
+  const fontsBase = wv.asWebviewUri(vscode.Uri.joinPath(ctx.extensionUri, 'media', 'fonts')).toString();
+  const kcss = a.katexCss.replace(/url\(fonts\//g, `url(${fontsBase}/`);
+  const custom = vscode.workspace.getConfiguration('paperMd').get('customCss') || '';
+  const noStyleEnd = (s) => s.replace(/<\/style/gi, '');
+  const button = opts.editButton ? '<button id="edit-btn">Edit as text</button>' : '';
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${wv.cspSource} https: data:; style-src ${wv.cspSource} 'unsafe-inline'; font-src ${wv.cspSource}; script-src 'nonce-${n}';">
+<style>${noStyleEnd(kcss)}</style><style>${noStyleEnd(a.paperCss)}</style>
+<style>${noStyleEnd(custom)}</style></head>
+<body data-key="${esc(opts.key || '')}">${button}<div id="content">${bodyHtml}</div>
+<script nonce="${n}">${a.mainJs.replace(/<\/script/gi, '')}</script></body></html>`;
+}
+
+// Open a link clicked in a rendered page. Relative .md links open with `mdEditor`.
+function openLink(href, document, mdEditor) {
+  if (/^https?:/i.test(href) || /^mailto:/i.test(href)) {
+    vscode.env.openExternal(vscode.Uri.parse(href));
+    return;
+  }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return;
+  const p = href.split('#')[0];
+  let target;
+  try { target = p.startsWith('/') ? document.uri.with({ path: decodeURIComponent(p) }) : vscode.Uri.joinPath(dirOf(document.uri), decodeURIComponent(p)); }
+  catch (e) { return; }
+  vscode.commands.executeCommand('vscode.openWith', target, isMd(target) ? mdEditor : 'default');
+}
+
+// Mode 1: each .md file in its own tab (custom editor). About 1 s per new tab in Cursor.
 class Provider {
   constructor(ctx) { this.ctx = ctx; }
 
@@ -33,103 +103,141 @@ class Provider {
     const t0 = Date.now();
     const name = document.uri.path.split('/').pop();
     const opened = openTimes.get(document.uri.toString());
-    const media = vscode.Uri.joinPath(this.ctx.extensionUri, 'media');
-    const docDir = vscode.Uri.joinPath(document.uri, '..');
-    const roots = [media, docDir, ...(vscode.workspace.workspaceFolders || []).map((f) => f.uri)];
     const wv = panel.webview;
-    wv.options = { enableScripts: true, localResourceRoots: roots };
+    wv.options = { enableScripts: true, localResourceRoots: rootsFor(this.ctx, document.uri) };
 
-    const render = createRenderer({
-      resolveImage: (src) => {
-        try {
-          const clean = decodeURIComponent(src.split(/[?#]/)[0]);
-          const uri = clean.startsWith('/') ? document.uri.with({ path: clean }) : vscode.Uri.joinPath(docDir, clean);
-          return wv.asWebviewUri(uri).toString();
-        } catch (e) { return null; }
-      },
-    });
-    const html = () => {
-      try { return render(document.getText()); }
-      catch (e) { return '<pre>Render error: ' + esc(String(e && e.message)) + '</pre>'; }
-    };
-
-    const tr0 = Date.now();
-    const first = html();
-    const renderMs = Date.now() - tr0;
-    const n = nonce();
-    // Inline CSS and script: separate resource requests delay DOM ready by about 1 s in remote windows.
-    const a = assets(this.ctx);
-    const fontsBase = wv.asWebviewUri(vscode.Uri.joinPath(media, 'fonts')).toString();
-    const kcss = a.katexCss.replace(/url\(fonts\//g, `url(${fontsBase}/`);
-    const custom = vscode.workspace.getConfiguration('paperMd').get('customCss') || '';
-    const noStyleEnd = (s) => s.replace(/<\/style/gi, '');
-    wv.html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${wv.cspSource} https: data:; style-src ${wv.cspSource} 'unsafe-inline'; font-src ${wv.cspSource}; script-src 'nonce-${n}';">
-<style>${noStyleEnd(kcss)}</style><style>${noStyleEnd(a.paperCss)}</style>
-<style>${noStyleEnd(custom)}</style></head>
-<body><button id="edit-btn">Edit as text</button><div id="content">${first}</div>
-<script nonce="${n}">${a.mainJs.replace(/<\/script/gi, '')}</script></body></html>`;
+    const first = renderDoc(wv, document);
+    const renderMs = Date.now() - t0;
+    wv.html = shell(this.ctx, wv, first, { editButton: true });
+    const tHtml = Date.now();
 
     let timer;
-    const subs = [
-      vscode.workspace.onDidChangeTextDocument((e) => {
-        if (e.document.uri.toString() !== document.uri.toString()) return;
-        clearTimeout(timer);
-        timer = setTimeout(() => wv.postMessage({ type: 'render', html: html() }), 150);
-      }),
-    ];
-    panel.onDidDispose(() => { clearTimeout(timer); subs.forEach((s) => s.dispose()); });
+    const sub = vscode.workspace.onDidChangeTextDocument((e) => {
+      if (e.document.uri.toString() !== document.uri.toString()) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => wv.postMessage({ type: 'render', html: renderDoc(wv, document) }), 150);
+    });
+    panel.onDidDispose(() => { clearTimeout(timer); sub.dispose(); });
 
-    const tHtml = Date.now();
     wv.onDidReceiveMessage((m) => {
       if (m.type === 'timing' && m.t) {
         const r = (x) => (x ? (x - t0) + ' ms' : 'n/a');
-        log(`${name} (${document.getText().length} chars): ` +
+        log(`tab ${name} (${document.getText().length} chars): ` +
           (opened ? `text doc opened ${t0 - opened} ms before viewer start; ` : '') +
           `render ${renderMs} ms, html set ${r(tHtml)}, webview created ${r(Math.round(m.t.origin))}, ` +
           `DOM ready ${r(m.t.dom)}, page loaded ${r(m.t.load)}, first paint ${r(m.t.paint)} (all from viewer start)`);
-        return;
-      }
-      if (m.type === 'edit') {
+      } else if (m.type === 'edit') {
         vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
       } else if (m.type === 'link' && typeof m.href === 'string') {
-        const href = m.href;
-        if (/^https?:/i.test(href) || /^mailto:/i.test(href)) {
-          vscode.env.openExternal(vscode.Uri.parse(href));
-        } else if (!/^[a-z][a-z0-9+.-]*:/i.test(href)) {
-          const [p, frag] = href.split('#');
-          let target;
-          try { target = p.startsWith('/') ? document.uri.with({ path: decodeURIComponent(p) }) : vscode.Uri.joinPath(docDir, decodeURIComponent(p)); }
-          catch (e) { return; }
-          const isMd = /\.(md|markdown)$/i.test(target.path);
-          vscode.commands.executeCommand('vscode.openWith', target, isMd ? VIEW_TYPE : 'default');
-        }
+        openLink(m.href, document, VIEW_TYPE);
       }
     });
   }
 }
 
-let channel;
-const openTimes = new Map();
-function log(msg) {
-  if (!channel) channel = vscode.window.createOutputChannel('Paper MD');
-  channel.appendLine(`[${new Date().toISOString().slice(11, 23)}] ${msg}`);
+// Mode 2: one panel that follows the active .md text editor. Only the first open
+// pays for the webview; later files are a postMessage (tens of ms).
+class FollowPanel {
+  constructor(ctx) {
+    this.ctx = ctx;
+    this.panel = undefined;
+    this.doc = undefined;
+    this.timer = undefined;
+    this.userClosed = false;
+  }
+
+  open(document, reveal) {
+    if (this.panel) {
+      if (reveal) this.panel.reveal(undefined, true);
+      if (document) this.show(document);
+      return;
+    }
+    this.userClosed = false;
+    const t0 = Date.now();
+    const panel = vscode.window.createWebviewPanel(FOLLOW_TYPE, 'Paper MD',
+      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+      { enableScripts: true, retainContextWhenHidden: true, enableFindWidget: true,
+        localResourceRoots: rootsFor(this.ctx, document && document.uri) });
+    this.panel = panel;
+    this.doc = document;
+    const wv = panel.webview;
+    const body = document ? renderDoc(wv, document) : '<p>Open a Markdown file to show it here.</p>';
+    if (document) panel.title = 'Paper: ' + document.uri.path.split('/').pop();
+    wv.html = shell(this.ctx, wv, body, { editButton: false, key: document ? document.uri.toString() : '' });
+
+    wv.onDidReceiveMessage((m) => {
+      if (m.type === 'timing' && m.t) {
+        log(`panel created: DOM ready ${m.t.dom - t0} ms, first paint ${m.t.paint - t0} ms (one-time cost)`);
+      } else if (m.type === 'rendered') {
+        log(`panel switch ${this.doc ? this.doc.uri.path.split('/').pop() : ''}: shown ${m.at - m.sent} ms after send (render ${this.lastRenderMs} ms)`);
+      } else if (m.type === 'link' && typeof m.href === 'string' && this.doc) {
+        openLink(m.href, this.doc, 'default');
+      }
+    });
+    panel.onDidDispose(() => {
+      clearTimeout(this.timer);
+      this.panel = undefined;
+      this.doc = undefined;
+      this.userClosed = true;
+    });
+  }
+
+  show(document) {
+    if (!this.panel) return;
+    const wv = this.panel.webview;
+    const roots = wv.options.localResourceRoots || [];
+    if (!inRoots(roots, dirOf(document.uri))) {
+      // Image folder outside the allowed roots: widen the roots so images load.
+      wv.options = { ...wv.options, localResourceRoots: [...roots, dirOf(document.uri)] };
+    }
+    this.doc = document;
+    this.panel.title = 'Paper: ' + document.uri.path.split('/').pop();
+    const t = Date.now();
+    const html = renderDoc(wv, document);
+    this.lastRenderMs = Date.now() - t;
+    wv.postMessage({ type: 'render', key: document.uri.toString(), html, sent: Date.now() });
+  }
+
+  onEditorChange(editor) {
+    if (!editor || !isMd(editor.document.uri)) return;
+    if (this.panel) {
+      if (!this.doc || this.doc.uri.toString() !== editor.document.uri.toString()) this.show(editor.document);
+    } else if (!this.userClosed && vscode.workspace.getConfiguration('paperMd').get('followPanel.autoOpen')) {
+      this.open(editor.document, false);
+    }
+  }
+
+  onDocChange(e) {
+    if (!this.panel || !this.doc || e.document.uri.toString() !== this.doc.uri.toString()) return;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.show(e.document), 150);
+  }
 }
 
 function activate(ctx) {
   const ta = Date.now();
+  const follow = new FollowPanel(ctx);
+  const activeMd = () => {
+    const ed = vscode.window.activeTextEditor;
+    return ed && isMd(ed.document.uri) ? ed.document : undefined;
+  };
   ctx.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((d) => {
-      if (/\.(md|markdown)$/i.test(d.uri.path)) openTimes.set(d.uri.toString(), Date.now());
+      if (isMd(d.uri)) openTimes.set(d.uri.toString(), Date.now());
     }),
     vscode.window.registerCustomEditorProvider(VIEW_TYPE, new Provider(ctx), { webviewOptions: { retainContextWhenHidden: true } }),
+    vscode.window.onDidChangeActiveTextEditor((ed) => follow.onEditorChange(ed)),
+    vscode.workspace.onDidChangeTextDocument((e) => follow.onDocChange(e)),
+    vscode.commands.registerCommand('paperMd.openFollowPanel', () => follow.open(activeMd(), true)),
     vscode.commands.registerCommand('paperMd.openAsText', (uri) => {
       uri = uri || (vscode.window.activeTextEditor && vscode.window.activeTextEditor.document.uri)
         || (vscode.window.tabGroups.activeTabGroup.activeTab && vscode.window.tabGroups.activeTabGroup.activeTab.input && vscode.window.tabGroups.activeTabGroup.activeTab.input.uri);
       if (uri) vscode.commands.executeCommand('vscode.openWith', uri, 'default');
     }),
   );
-  log(`activated in ${Date.now() - ta} ms (module load before this is not counted)`);
+  // A Markdown text editor may already be active when the extension starts.
+  follow.onEditorChange(vscode.window.activeTextEditor);
+  log(`activated in ${Date.now() - ta} ms`);
 }
 function deactivate() {}
 module.exports = { activate, deactivate };

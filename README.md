@@ -32,9 +32,19 @@ Add this to your user `settings.json`:
 
 Without this, open a file with right-click, then **Open With... > Paper MD Viewer**.
 
+## Follow panel (fastest)
+
+Each new webview tab costs about 1 s in Cursor and VS Code, before any extension code runs. The follow panel avoids this cost: one panel stays open beside your text editor and shows whichever `.md` file is active. Only the first open creates a webview; switching files after that takes tens of milliseconds. The panel remembers the scroll position of each file.
+
+1. Keep `.md` files opening in the normal text editor (do not set the editor association above).
+2. Run **Paper MD: Open Follow Panel**, or set `"paperMd.followPanel.autoOpen": true` to open it automatically.
+
 ## Settings
 
 - `paperMd.customCss` (string): CSS added after the built-in paper style.
+- `paperMd.followPanel.autoOpen` (boolean, default `false`): open the follow panel when a Markdown text editor becomes active.
+
+Open-time measurements are written to **View > Output > Paper MD**.
 
 ## Build
 

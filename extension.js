@@ -144,18 +144,24 @@ class FollowPanel {
     this.doc = undefined;
     this.timer = undefined;
     this.userClosed = false;
+    this.asText = new Set(); // documents the user chose to read as text
   }
 
-  open(document, reveal) {
+  replaceMode() {
+    return vscode.workspace.getConfiguration('paperMd').get('followPanel.replaceTextTab');
+  }
+
+  open(document, reveal, column) {
     if (this.panel) {
-      if (reveal) this.panel.reveal(undefined, true);
+      if (reveal) this.panel.reveal(column, !this.replaceMode());
       if (document) this.show(document);
       return;
     }
     this.userClosed = false;
     const t0 = Date.now();
+    const replace = this.replaceMode();
     const panel = vscode.window.createWebviewPanel(FOLLOW_TYPE, 'Paper MD',
-      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+      { viewColumn: replace && column ? column : vscode.ViewColumn.Beside, preserveFocus: !replace },
       { enableScripts: true, retainContextWhenHidden: true, enableFindWidget: true,
         localResourceRoots: rootsFor(this.ctx, document && document.uri) });
     this.panel = panel;
@@ -163,13 +169,18 @@ class FollowPanel {
     const wv = panel.webview;
     const body = document ? renderDoc(wv, document) : '<p>Open a Markdown file to show it here.</p>';
     if (document) panel.title = 'Paper: ' + document.uri.path.split('/').pop();
-    wv.html = shell(this.ctx, wv, body, { editButton: false, key: document ? document.uri.toString() : '' });
+    wv.html = shell(this.ctx, wv, body, { editButton: replace, key: document ? document.uri.toString() : '' });
 
     wv.onDidReceiveMessage((m) => {
       if (m.type === 'timing' && m.t) {
         log(`panel created: DOM ready ${m.t.dom - t0} ms, first paint ${m.t.paint - t0} ms (one-time cost)`);
       } else if (m.type === 'rendered') {
         log(`panel switch ${this.doc ? this.doc.uri.path.split('/').pop() : ''}: shown ${m.at - m.sent} ms after send (render ${this.lastRenderMs} ms)`);
+      } else if (m.type === 'edit' && this.doc) {
+        // Read this file as text: stop replacing its text tab until it is closed.
+        const uri = this.doc.uri;
+        this.asText.add(uri.toString());
+        vscode.window.showTextDocument(uri, { viewColumn: this.panel.viewColumn, preview: false });
       } else if (m.type === 'link' && typeof m.href === 'string' && this.doc) {
         openLink(m.href, this.doc, 'default');
       }
@@ -178,8 +189,21 @@ class FollowPanel {
       clearTimeout(this.timer);
       this.panel = undefined;
       this.doc = undefined;
-      this.userClosed = true;
+      // In replace mode, closing the panel is like closing a file; keep auto-open on.
+      this.userClosed = !this.replaceMode();
     });
+  }
+
+  // Close the text tabs of `uri` so the panel is the only view of the file.
+  closeTextTabs(uri) {
+    const key = uri.toString();
+    const tabs = [];
+    for (const g of vscode.window.tabGroups.all) {
+      for (const tab of g.tabs) {
+        if (tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === key) tabs.push(tab);
+      }
+    }
+    if (tabs.length) vscode.window.tabGroups.close(tabs, true);
   }
 
   show(document) {
@@ -200,12 +224,25 @@ class FollowPanel {
 
   onEditorChange(editor) {
     if (!editor || !isMd(editor.document.uri)) return;
+    const doc = editor.document;
+    const name = doc.uri.path.split('/').pop();
+    if (this.asText.has(doc.uri.toString())) { log(`editor change ${name}: kept as text (Edit as text)`); return; }
+    const replace = this.replaceMode();
     if (this.panel) {
-      if (!this.doc || this.doc.uri.toString() !== editor.document.uri.toString()) this.show(editor.document);
+      log(`editor change ${name}: updating panel` + (replace ? ' in place' : ''));
+      if (!this.doc || this.doc.uri.toString() !== doc.uri.toString()) this.show(doc);
+      if (replace) this.panel.reveal(editor.viewColumn, false);
     } else if (!this.userClosed && vscode.workspace.getConfiguration('paperMd').get('followPanel.autoOpen')) {
-      this.open(editor.document, false);
+      log(`editor change ${name}: opening panel` + (replace ? ' in place' : ' beside'));
+      this.open(doc, false, editor.viewColumn);
+    } else {
+      log(`editor change ${name}: no panel (closed by user or autoOpen off)`);
+      return;
     }
+    if (replace) setTimeout(() => this.closeTextTabs(doc.uri), 0);
   }
+
+  onDocClose(d) { this.asText.delete(d.uri.toString()); }
 
   onDocChange(e) {
     if (!this.panel || !this.doc || e.document.uri.toString() !== this.doc.uri.toString()) return;
@@ -228,6 +265,10 @@ function activate(ctx) {
     vscode.window.registerCustomEditorProvider(VIEW_TYPE, new Provider(ctx), { webviewOptions: { retainContextWhenHidden: true } }),
     vscode.window.onDidChangeActiveTextEditor((ed) => follow.onEditorChange(ed)),
     vscode.workspace.onDidChangeTextDocument((e) => follow.onDocChange(e)),
+    vscode.workspace.onDidCloseTextDocument((d) => follow.onDocClose(d)),
+    vscode.window.tabGroups.onDidChangeTabs((e) => {
+      for (const tab of e.closed) if (tab.input instanceof vscode.TabInputText) follow.onDocClose(tab.input);
+    }),
     vscode.commands.registerCommand('paperMd.openFollowPanel', () => follow.open(activeMd(), true)),
     vscode.commands.registerCommand('paperMd.openAsText', (uri) => {
       uri = uri || (vscode.window.activeTextEditor && vscode.window.activeTextEditor.document.uri)

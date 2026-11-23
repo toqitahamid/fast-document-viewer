@@ -38,11 +38,13 @@ Each new webview tab costs about 1 s in Cursor and VS Code, before any extension
 
 1. Keep `.md` files opening in the normal text editor (do not set the editor association above).
 2. Run **Paper MD: Open Follow Panel**, or set `"paperMd.followPanel.autoOpen": true` to open it automatically.
+3. For one tab instead of a side-by-side view, also set `"paperMd.followPanel.replaceTextTab": true`. The panel then takes the place of each Markdown text tab you open. Its **Edit as text** button reopens the current file as text.
 
 ## Settings
 
 - `paperMd.customCss` (string): CSS added after the built-in paper style.
 - `paperMd.followPanel.autoOpen` (boolean, default `false`): open the follow panel when a Markdown text editor becomes active.
+- `paperMd.followPanel.replaceTextTab` (boolean, default `false`): show the follow panel in place of the Markdown text tab.
 
 Open-time measurements are written to **View > Output > Paper MD**.
 

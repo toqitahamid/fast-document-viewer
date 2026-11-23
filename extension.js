@@ -170,6 +170,8 @@ class Provider {
           `DOM ready ${r(m.t.dom)}, page loaded ${r(m.t.load)}, first paint ${r(m.t.paint)} (all from viewer start)`);
       } else if (m.type === 'edit') {
         vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
+      } else if (m.type === 'copyText' && typeof m.text === 'string') {
+        vscode.env.clipboard.writeText(m.text);
       } else if (m.type === 'link' && typeof m.href === 'string') {
         openLink(m.href, document, VIEW_TYPE);
       }
@@ -266,13 +268,17 @@ class FollowPanel {
     this.compiler.request(key, async () => {
       const cache = this.cacheDir(rootUri);
       const maxMB = vscode.workspace.getConfiguration('paperMd').get('tex.maxMirrorMB') || 200;
-      const m = await tc.mirror(vscode, dirOf(rootUri), cache, { maxMB, force });
+      let ex = { base: dirOf(rootUri), relRoot: '', targets: [], warnings: [] };
+      try { ex = await tc.findExternal(vscode, rootUri); } catch (e) { log('tex external refs: ' + (e && e.message)); }
+      for (const w of ex.warnings) log('tex mirror: ' + w);
+      const m = await tc.mirror(vscode, dirOf(rootUri), cache, { maxMB, force, baseUri: ex.base, extra: ex.targets });
       if (m.tooBig) {
         log(`tex mirror: ${m.files} files, ${(m.totalBytes / 1048576).toFixed(1)} MB is over paperMd.tex.maxMirrorMB (${maxMB})`);
         return { ok: false, banner: `The folder of ${rootUri.path.split('/').pop()} holds ${(m.totalBytes / 1048576).toFixed(0)} MB of TeX-related files. This is over paperMd.tex.maxMirrorMB (${maxMB}). Raise the setting or move the paper to a smaller folder.` };
       }
+      log(`tex mirror base: ${ex.base.path}${ex.relRoot ? ' (root folder at ' + ex.relRoot + ')' : ''}${m.extFolders && m.extFolders.length ? '; external folders: ' + m.extFolders.join(', ') : ''}${ex.targets.length ? '; ' + ex.targets.length + ' external refs' : ''}`);
       log(`tex mirror: ${m.scanned} scanned, ${m.files} kept, ${m.copied} copied (${(m.bytes / 1048576).toFixed(2)} MB), ${m.removed} removed, ${m.ms} ms`);
-      const rootFile = require('path').join(cache, 'src', rootUri.path.split('/').pop());
+      const rootFile = require('path').join(cache, 'src', ex.relRoot, rootUri.path.split('/').pop());
       const texPath = vscode.workspace.getConfiguration('paperMd').get('tex.texPath');
       const res = await tc.compile(rootFile, cache, { texPath, force, timeoutMs: this.compileTimeoutMs });
       res.rootUri = rootUri;
@@ -352,6 +358,8 @@ class FollowPanel {
         const uri = this.current.uri;
         this.asText.add(uri.toString());
         vscode.window.showTextDocument(uri, { viewColumn: this.panel.viewColumn, preview: false });
+      } else if (m.type === 'copyText' && typeof m.text === 'string') {
+        vscode.env.clipboard.writeText(m.text);
       } else if (m.type === 'link' && typeof m.href === 'string' && this.doc) {
         openLink(m.href, this.doc, 'default');
       }

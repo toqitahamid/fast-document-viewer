@@ -134,3 +134,9 @@ html.pdf-mode, html.pdf-mode body { background: #525659; }
 #content table.tex-tab.wide td:last-child:not(:first-child) { text-align: right; }
 #content ul.tex-nolab { list-style: none; padding-left: 0; }
 #content table.tex-tab.norule { border: 0; }
+/* Text selection and PDF text layer (pdf.js 3.11 does not ship this CSS in the UMD build) */
+#content, #pdf, #pdf .pdf-page { -webkit-user-select: text; user-select: text; }
+#edit-btn, #pdfbar { -webkit-user-select: none; user-select: none; }
+#pdf .textLayer { position: absolute; inset: 0; overflow: hidden; opacity: 1; line-height: 1; text-align: initial; z-index: 1; --scale-factor: 1; }
+#pdf .textLayer span, #pdf .textLayer br { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; }
+#pdf .textLayer ::selection { background: rgba(0, 100, 255, 0.25); }

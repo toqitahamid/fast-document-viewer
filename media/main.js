@@ -29,7 +29,7 @@
   const pdfState = new Map(); // key -> { frac, zoom }
   let libPromise = null;
   let seq = 0; // bumps on every mode or file change; stale async work checks it
-  let pdf = null; // { doc, key, name, zoom, gen, pages: [{div, canvas, gen, task, w, h}], io }
+  let pdf = null; // { doc, key, name, zoom, gen, pages: [{div, canvas, tl, tlNew, tlTask, gen, task, w, h}], io }
   let shownSent = 0;
 
   function loadLib() {
@@ -73,11 +73,18 @@
     pdfState.set(pdf.key, { frac: h ? window.scrollY / h : 0, zoom: pdf.zoom });
   }
 
+  // Stop the page's canvas render and text-layer build; drop a half-built text layer.
+  function cancelPage(pg) {
+    if (pg.task) { try { pg.task.cancel(); } catch (e) { /* ignore */ } pg.task = null; }
+    if (pg.tlTask) { try { pg.tlTask.cancel(); } catch (e) { /* ignore */ } pg.tlTask = null; }
+    if (pg.tlNew) { pg.tlNew.remove(); pg.tlNew = null; }
+  }
+
   function closePdf() {
     if (!pdf) return;
     const p = pdf; pdf = null;
     if (p.io) p.io.disconnect();
-    for (const pg of p.pages) if (pg.task) { try { pg.task.cancel(); } catch (e) { /* ignore */ } }
+    for (const pg of p.pages) cancelPage(pg);
     pdfEl.textContent = '';
     if (p.doc) p.doc.destroy();
   }
@@ -94,6 +101,8 @@
     pg.div.style.width = w + 'px';
     pg.div.style.height = w * ratio + 'px';
     if (pg.canvas) { pg.canvas.style.width = '100%'; pg.canvas.style.height = '100%'; }
+    // The text layer sizes its spans from --scale-factor, so it follows zoom at once.
+    if (pg.tl) pg.tl.style.setProperty('--scale-factor', String(CSS_PER_PT * pdf.zoom));
   }
 
   async function renderPage(p, i) {
@@ -124,14 +133,44 @@
       if (pdf !== p || p.gen !== gen) return;
       if (pg.canvas) pg.canvas.remove();
       pg.canvas = canvas;
-      pg.div.appendChild(canvas);
+      pg.div.insertBefore(canvas, pg.div.firstChild); // the text layer stays above the canvas
       if (shownSent) {
         vscode.postMessage({ type: 'pdfShown', key: p.key, name: p.name, pages: p.doc.numPages, sent: shownSent, at: Date.now() });
         shownSent = 0;
       }
+      await buildTextLayer(p, pg, page, vp, gen);
     } catch (e) {
       if (pg.gen === gen) pg.gen = -1; // allow a retry
       if (!(e && e.name === 'RenderingCancelledException')) vscode.postMessage({ type: 'pdfError', message: 'page ' + (i + 1) + ': ' + (e && e.message) });
+    }
+  }
+
+  // Selectable, invisible text over the canvas (pdf.js 3.11 renderTextLayer). A new layer
+  // replaces the old one only when it is complete, so a selection is not lost half-way.
+  async function buildTextLayer(p, pg, page, vp, gen) {
+    const lib = window.pdfjsLib;
+    if (!lib || !lib.renderTextLayer) return;
+    let tl = null;
+    try {
+      const tc = await page.getTextContent();
+      if (pdf !== p || p.gen !== gen) return;
+      tl = document.createElement('div');
+      tl.className = 'textLayer';
+      tl.style.setProperty('--scale-factor', String(vp.scale));
+      pg.tlNew = tl;
+      pg.div.appendChild(tl);
+      const task = lib.renderTextLayer({ textContentSource: tc, container: tl, viewport: vp, textDivs: [] });
+      pg.tlTask = task;
+      await task.promise;
+      pg.tlTask = null;
+      if (pdf !== p || p.gen !== gen) { tl.remove(); return; }
+      pg.tlNew = null;
+      if (pg.tl) pg.tl.remove();
+      pg.tl = tl;
+    } catch (e) {
+      if (tl) tl.remove();
+      pg.tlNew = null; pg.tlTask = null;
+      // A cancelled build is normal (zoom changed); a failed one only costs selection on this page.
     }
   }
 
@@ -153,7 +192,7 @@
     const frac = h ? window.scrollY / h : 0;
     pdf.gen++;
     for (const pg of pdf.pages) {
-      if (pg.task) { try { pg.task.cancel(); } catch (e) { /* ignore */ } pg.task = null; }
+      cancelPage(pg);
       sizePage(pg);
     }
     window.scrollTo(window.scrollX, frac * document.documentElement.scrollHeight);
@@ -234,7 +273,7 @@
         const div = document.createElement('div');
         div.className = 'pdf-page';
         div.dataset.i = String(i);
-        p.pages.push({ div, canvas: null, gen: 0, task: null, w: i === 0 ? v.width : 0, h: i === 0 ? v.height : 0 });
+        p.pages.push({ div, canvas: null, tl: null, tlNew: null, tlTask: null, gen: 0, task: null, w: i === 0 ? v.width : 0, h: i === 0 ? v.height : 0 });
         frag.appendChild(div);
       }
       const old = same ? pdf : null;
@@ -366,7 +405,7 @@
     pinchTimer = setTimeout(() => {
       if (!pdf) return;
       pdf.gen++;
-      for (const pg of pdf.pages) if (pg.task) { try { pg.task.cancel(); } catch (err) { /* ignore */ } pg.task = null; }
+      for (const pg of pdf.pages) cancelPage(pg);
       observe();
     }, 200);
   }, { passive: false });
@@ -429,7 +468,39 @@
     if (m.sent) requestAnimationFrame(() => vscode.postMessage({ type: 'rendered', sent: m.sent, at: Date.now() }));
   });
 
+  // ---- Selection and copy (md, LaTeX preview, PDF text layers) ----
+  const selText = () => { const s = window.getSelection(); return s ? s.toString() : ''; };
+  document.addEventListener('keydown', (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+    const k = (e.key || '').toLowerCase();
+    const tag = e.target && e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    if (k === 'a') {
+      const root = mode === 'pdf' ? pdfEl : mode === 'md' ? content : null;
+      if (!root) return;
+      e.preventDefault();
+      const sel = window.getSelection();
+      const r = document.createRange();
+      r.selectNodeContents(root);
+      sel.removeAllRanges();
+      sel.addRange(r);
+    } else if (k === 'c') {
+      const text = selText();
+      if (!text) return;
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+      if (ok) return;
+      e.preventDefault();
+      const fallback = () => vscode.postMessage({ type: 'copyText', text });
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).catch(fallback);
+        else fallback();
+      } catch (err) { fallback(); }
+    }
+  });
+
   document.addEventListener('click', (e) => {
+    if (selText()) return; // a drag that ended on a link made a selection: do not follow the link
     const a = e.target.closest && e.target.closest('a[href]');
     if (!a) return;
     const href = a.getAttribute('href');

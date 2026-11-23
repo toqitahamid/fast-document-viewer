@@ -50,6 +50,8 @@ The follow panel can also show `.pdf` files, so a PDF opens in the same reused p
 
 PDFs open at 100% (actual size). The toolbar has zoom out, zoom in, Fit (fit width), 100%, and a page and zoom counter. Trackpad pinch and Ctrl + mouse wheel also zoom. It remembers the scroll position and zoom of each PDF. The PDF must still be copied over SSH once each time you open it. pdf.js 3.11.174 (Apache 2.0) is bundled and loads on the first PDF only.
 
+Text in a PDF is selectable: drag to select across lines and pages, Cmd/Ctrl+C copies, Cmd/Ctrl+A selects the whole document. Copy also works in Markdown and LaTeX previews.
+
 ## HTML
 
 `.html` and `.htm` files open as rendered pages in a second reused panel, **Paper HTML**. Cursor opens them as text, and the panel replaces that tab.
@@ -105,6 +107,17 @@ Requirements:
 - Disk use: one local copy of the root's folder tree (up to `paperMd.tex.maxMirrorMB`) plus the build files, per root. Delete the extension's `globalStorage` folder to clear them.
 - LaTeX Workshop, if installed, may also build local files on save. The two builds use different folders and do not clash, but they use CPU twice.
 - Not done yet: SyncTeX jumps between the source and the PDF.
+
+### Passing definitions to a template
+
+A root file can set TeX code that runs before it, like `xelatex "\def\x{..}\input{root}"` on the command line. Put one or more lines in its first 30 lines:
+
+```latex
+% !TEX def = \def\letterBody{letters/acme}
+% !TEX def = \def\letterRecipient{letters/acme_recipient}
+```
+
+Compile mode passes them to latexmk with `-usepretex`.
 
 ## Settings
 

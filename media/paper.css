@@ -33,6 +33,8 @@ body { margin: 0; background: #fff; color: #000; }
 #edit-btn:hover { opacity: 1; }
 html.pdf-mode, html.pdf-mode body { background: #525659; }
 #pdf { position: relative; display: flex; flex-direction: column; align-items: center; width: max-content; min-width: 100%; box-sizing: border-box; padding: 16px; gap: 12px; color: #eee; font: 14px sans-serif; }
+#htmlframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+#htmlframe[hidden] { display: none; }
 #pdf[hidden], #pdfbar[hidden] { display: none; }
 #pdf .pdf-page { position: relative; flex: none; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.5); }
 #pdf .pdf-page canvas { display: block; }

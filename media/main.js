@@ -17,6 +17,13 @@
   const pdfEl = document.getElementById('pdf');
   const bar = document.getElementById('pdfbar');
   const pageLabel = document.getElementById('pdf-page');
+  const frame = document.getElementById('htmlframe');
+  let pendingHtml = null; // { sent, name } until the iframe fires 'load'
+  frame.addEventListener('load', () => {
+    if (!pendingHtml) return;
+    vscode.postMessage({ type: 'htmlShown', name: pendingHtml.name, sent: pendingHtml.sent, at: Date.now() });
+    pendingHtml = null;
+  });
 
   // ---- PDF viewer (pdf.js is loaded on the first PDF) ----
   const pdfState = new Map(); // key -> { frac, zoom }
@@ -47,10 +54,16 @@
   function setMode(m) {
     mode = m;
     const isPdf = m === 'pdf';
+    const isHtml = m === 'html';
     document.documentElement.classList.toggle('pdf-mode', isPdf);
-    content.style.display = isPdf ? 'none' : '';
+    content.style.display = isPdf || isHtml ? 'none' : '';
     pdfEl.hidden = !isPdf;
     bar.hidden = !isPdf;
+    frame.hidden = !isHtml;
+    if (!isHtml && frame.getAttribute('src') && frame.getAttribute('src') !== 'about:blank') {
+      pendingHtml = null;
+      frame.src = 'about:blank'; // free the page's memory
+    }
     if (btn) btn.style.display = isPdf ? 'none' : '';
   }
 
@@ -183,6 +196,16 @@
     throw new Error('unexpected PDF data type: ' + typeof d);
   }
 
+  function showHtml(m) {
+    seq++;
+    if (mode === 'md') scrolls.set(currentKey, window.scrollY);
+    else if (mode === 'pdf') { savePdfState(); closePdf(); }
+    currentKey = m.key;
+    setMode('html');
+    pendingHtml = { sent: m.sent || Date.now(), name: m.name };
+    frame.src = m.src;
+  }
+
   async function showPdf(m) {
     const my = ++seq;
     if (mode === 'md') scrolls.set(currentKey, window.scrollY); else savePdfState();
@@ -275,9 +298,11 @@
     const m = e.data;
     if (!m) return;
     if (m.type === 'pdf') { showPdf(m); return; }
+    if (m.type === 'html') { showHtml(m); return; }
     if (m.type !== 'render') return;
     seq++;
     if (mode === 'pdf') { savePdfState(); closePdf(); setMode('md'); }
+    else if (mode === 'html') setMode('md');
     const key = m.key || currentKey;
     const sameDoc = key === currentKey;
     if (!sameDoc) scrolls.set(currentKey, window.scrollY);

@@ -1,6 +1,6 @@
 {
   "name": "paper-md-viewer",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "description": "Fast read-only Markdown viewer with a printed-paper look and KaTeX math.",
   "main": "./extension.js",
   "license": "MIT",
@@ -37,6 +37,7 @@
   "activationEvents": [
     "onCustomEditor:paperMd.viewer",
     "onLanguage:markdown",
+    "onLanguage:html",
     "onCommand:paperMd.openFollowPanel",
     "onStartupFinished"
   ],
@@ -83,6 +84,11 @@
           "type": "boolean",
           "default": false,
           "description": "Show .pdf files in the Paper MD follow panel instead of a new tab. Needs paperMd.followPanel.replaceTextTab and the editor association \"*.pdf\": \"default\". The PDF tab is closed once the panel shows the file."
+        },
+        "paperMd.html.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show .html and .htm files in the Paper MD follow panel instead of as text. Needs paperMd.followPanel.replaceTextTab. The page runs in a sandboxed iframe and reloads when you save the file."
         },
         "paperMd.followPanel.replaceTextTab": {
           "type": "boolean",

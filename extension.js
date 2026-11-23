@@ -6,6 +6,7 @@ const VIEW_TYPE = 'paperMd.viewer';
 const FOLLOW_TYPE = 'paperMd.follow';
 const isMd = (uri) => /\.(md|markdown)$/i.test(uri.path);
 const isPdf = (uri) => /\.pdf$/i.test(uri.path);
+const isHtml = (uri) => /\.html?$/i.test(uri.path);
 
 function nonce() {
   let s = '';
@@ -76,10 +77,10 @@ function shell(ctx, wv, bodyHtml, opts) {
   const mediaUri = (f) => wv.asWebviewUri(vscode.Uri.joinPath(ctx.extensionUri, 'media', 'pdfjs', f)).toString();
   const button = opts.editButton ? '<button id="edit-btn">Edit as text</button>' : '';
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${wv.cspSource} https: data: blob:; style-src ${wv.cspSource} 'unsafe-inline'; font-src ${wv.cspSource}; script-src 'nonce-${n}' ${wv.cspSource}; worker-src blob:; connect-src ${wv.cspSource};">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${wv.cspSource} https: data: blob:; style-src ${wv.cspSource} 'unsafe-inline'; frame-src ${wv.cspSource}; font-src ${wv.cspSource}; script-src 'nonce-${n}' ${wv.cspSource}; worker-src blob:; connect-src ${wv.cspSource};">
 <style>${noStyleEnd(kcss)}</style><style>${noStyleEnd(a.paperCss)}</style>
 <style>${noStyleEnd(custom)}</style></head>
-<body data-key="${esc(opts.key || '')}" data-pdfjs="${mediaUri('pdf.min.js')}" data-pdfworker="${mediaUri('pdf.worker.min.js')}">${button}<div id="pdfbar" hidden><button id="pdf-out" title="Zoom out">&minus;</button><button id="pdf-in" title="Zoom in">+</button><button id="pdf-fit" title="Fit width">Fit</button><button id="pdf-100" title="Actual size">100%</button><span id="pdf-page"></span></div><div id="pdf" hidden></div><div id="content">${bodyHtml}</div>
+<body data-key="${esc(opts.key || '')}" data-pdfjs="${mediaUri('pdf.min.js')}" data-pdfworker="${mediaUri('pdf.worker.min.js')}">${button}<div id="pdfbar" hidden><button id="pdf-out" title="Zoom out">&minus;</button><button id="pdf-in" title="Zoom in">+</button><button id="pdf-fit" title="Fit width">Fit</button><button id="pdf-100" title="Actual size">100%</button><span id="pdf-page"></span></div><div id="pdf" hidden></div><iframe id="htmlframe" hidden sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads"></iframe><div id="content">${bodyHtml}</div>
 <script nonce="${n}">${a.mainJs.replace(/<\/script/gi, '')}</script></body></html>`;
 }
 
@@ -144,6 +145,7 @@ class FollowPanel {
     this.ctx = ctx;
     this.panel = undefined;
     this.doc = undefined;
+    this.current = undefined; // { kind: 'md' | 'pdf' | 'html', uri } of the file now shown
     this.timer = undefined;
     this.userClosed = false;
     this.asText = new Set(); // documents the user chose to read as text
@@ -155,7 +157,7 @@ class FollowPanel {
     return vscode.workspace.getConfiguration('paperMd').get('followPanel.replaceTextTab');
   }
 
-  open(document, reveal, column) {
+  open(document, reveal, column, extraUri) {
     if (this.panel) {
       if (reveal) this.panel.reveal(column, !this.replaceMode());
       if (document) this.show(document);
@@ -167,9 +169,10 @@ class FollowPanel {
     const panel = vscode.window.createWebviewPanel(FOLLOW_TYPE, 'Paper MD',
       { viewColumn: replace && column ? column : vscode.ViewColumn.Beside, preserveFocus: !replace },
       { enableScripts: true, retainContextWhenHidden: true, enableFindWidget: true,
-        localResourceRoots: rootsFor(this.ctx, document && document.uri) });
+        localResourceRoots: rootsFor(this.ctx, extraUri || (document && document.uri)) });
     this.panel = panel;
     this.doc = document;
+    this.current = document ? { kind: 'md', uri: document.uri } : undefined;
     const wv = panel.webview;
     const body = document ? renderDoc(wv, document) : '<p>Open a Markdown file to show it here.</p>';
     if (document) panel.title = 'Paper: ' + document.uri.path.split('/').pop();
@@ -184,9 +187,11 @@ class FollowPanel {
         log(`pdf ${m.name || ''}: first page shown ${m.at - m.sent} ms after send (${m.pages} pages)`);
       } else if (m.type === 'pdfError') {
         log(`pdf error: ${m.message}`);
-      } else if (m.type === 'edit' && this.doc) {
+      } else if (m.type === 'htmlShown') {
+        log(`html ${m.name || ''}: iframe loaded ${m.at - m.sent} ms after send`);
+      } else if (m.type === 'edit' && this.current) {
         // Read this file as text: stop replacing its text tab until it is closed.
-        const uri = this.doc.uri;
+        const uri = this.current.uri;
         this.asText.add(uri.toString());
         vscode.window.showTextDocument(uri, { viewColumn: this.panel.viewColumn, preview: false });
       } else if (m.type === 'link' && typeof m.href === 'string' && this.doc) {
@@ -197,6 +202,7 @@ class FollowPanel {
       clearTimeout(this.timer);
       this.panel = undefined;
       this.doc = undefined;
+      this.current = undefined;
       // In replace mode, closing the panel is like closing a file; keep auto-open on.
       this.userClosed = !this.replaceMode();
     });
@@ -214,15 +220,19 @@ class FollowPanel {
     if (tabs.length) vscode.window.tabGroups.close(tabs, true);
   }
 
+  // Image or page folder outside the allowed roots: widen the roots so files load.
+  ensureRoot(uri) {
+    const wv = this.panel.webview;
+    const roots = wv.options.localResourceRoots || [];
+    if (!inRoots(roots, dirOf(uri))) wv.options = { ...wv.options, localResourceRoots: [...roots, dirOf(uri)] };
+  }
+
   show(document) {
     if (!this.panel) return;
     const wv = this.panel.webview;
-    const roots = wv.options.localResourceRoots || [];
-    if (!inRoots(roots, dirOf(document.uri))) {
-      // Image folder outside the allowed roots: widen the roots so images load.
-      wv.options = { ...wv.options, localResourceRoots: [...roots, dirOf(document.uri)] };
-    }
+    this.ensureRoot(document.uri);
     this.doc = document;
+    this.current = { kind: 'md', uri: document.uri };
     this.panel.title = 'Paper: ' + document.uri.path.split('/').pop();
     const t = Date.now();
     const html = renderDoc(wv, document);
@@ -258,6 +268,7 @@ class FollowPanel {
       log(`pdf ${name}: ${Math.round(data.byteLength / 1024)} KB, read ${readMs} ms`);
       this.lastPdf = { key, at: Date.now() };
       this.doc = undefined;
+      this.current = { kind: 'pdf', uri };
       this.panel.title = 'Paper: ' + name;
       this.panel.reveal(column || this.panel.viewColumn, false);
       // Send a plain ArrayBuffer: a Node Buffer can arrive in the webview as a plain object.
@@ -268,6 +279,32 @@ class FollowPanel {
       log(`pdf ${name}: failed: ${e && e.message}`);
     } finally {
       this.pdfBusy.delete(key);
+    }
+  }
+
+  htmlMode() {
+    const c = vscode.workspace.getConfiguration('paperMd');
+    return !!c.get('html.enabled') && !!c.get('followPanel.replaceTextTab');
+  }
+
+  // Show an HTML file in the panel's sandboxed iframe. The iframe loads the file from disk.
+  showHtml(uri, reload) {
+    if (!this.panel) return;
+    this.ensureRoot(uri);
+    const name = uri.path.split('/').pop();
+    this.doc = undefined;
+    this.current = { kind: 'html', uri };
+    this.panel.title = 'Paper: ' + name;
+    // Add a cache-busting query only on reload after a save, so the first open uses the plain resource URL.
+    const src = this.panel.webview.asWebviewUri(uri).toString() + (reload ? '?v=' + Date.now() : '');
+    this.panel.webview.postMessage({ type: 'html', key: uri.toString(), name, src, sent: Date.now() });
+    log(`html ${name}: shown in panel`);
+  }
+
+  onDocSave(d) {
+    if (this.panel && this.current && this.current.kind === 'html' && this.current.uri.toString() === d.uri.toString()) {
+      log(`html ${d.uri.path.split('/').pop()}: saved, reloading`);
+      this.showHtml(d.uri, true);
     }
   }
 
@@ -282,18 +319,22 @@ class FollowPanel {
   }
 
   onEditorChange(editor) {
-    if (!editor || !isMd(editor.document.uri)) return;
+    if (!editor) return;
+    const html = isHtml(editor.document.uri);
+    if (html ? !this.htmlMode() : !isMd(editor.document.uri)) return;
     const doc = editor.document;
     const name = doc.uri.path.split('/').pop();
     if (this.asText.has(doc.uri.toString())) { log(`editor change ${name}: kept as text (Edit as text)`); return; }
     const replace = this.replaceMode();
     if (this.panel) {
       log(`editor change ${name}: updating panel` + (replace ? ' in place' : ''));
-      if (!this.doc || this.doc.uri.toString() !== doc.uri.toString()) this.show(doc);
+      if (html) this.showHtml(doc.uri);
+      else if (!this.doc || this.doc.uri.toString() !== doc.uri.toString()) this.show(doc);
       if (replace) this.panel.reveal(editor.viewColumn, false);
     } else if (!this.userClosed && vscode.workspace.getConfiguration('paperMd').get('followPanel.autoOpen')) {
       log(`editor change ${name}: opening panel` + (replace ? ' in place' : ' beside'));
-      this.open(doc, false, editor.viewColumn);
+      if (html) { this.open(undefined, false, editor.viewColumn, doc.uri); this.showHtml(doc.uri); }
+      else this.open(doc, false, editor.viewColumn);
     } else {
       log(`editor change ${name}: no panel (closed by user or autoOpen off)`);
       return;
@@ -326,6 +367,7 @@ function activate(ctx) {
     vscode.window.onDidChangeActiveTextEditor((ed) => follow.onEditorChange(ed)),
     vscode.workspace.onDidChangeTextDocument((e) => follow.onDocChange(e)),
     vscode.workspace.onDidCloseTextDocument((d) => follow.onDocClose(d)),
+    vscode.workspace.onDidSaveTextDocument((d) => follow.onDocSave(d)),
     vscode.window.tabGroups.onDidChangeTabs((e) => {
       for (const tab of e.closed) if (tab.input instanceof vscode.TabInputText) follow.onDocClose(tab.input);
       follow.checkTabs();

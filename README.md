@@ -50,12 +50,22 @@ The follow panel can also show `.pdf` files, so a PDF opens in the same reused p
 
 PDFs open at 100% (actual size). The toolbar has zoom out, zoom in, Fit (fit width), 100%, and a page and zoom counter. Trackpad pinch and Ctrl + mouse wheel also zoom. It remembers the scroll position and zoom of each PDF. The PDF must still be copied over SSH once each time you open it. pdf.js 3.11.174 (Apache 2.0) is bundled and loads on the first PDF only.
 
+## HTML
+
+The follow panel can also show `.html` and `.htm` files. Cursor opens them as text, and the panel replaces that tab.
+
+1. Set `"paperMd.followPanel.replaceTextTab": true` and `"paperMd.followPanel.autoOpen": true`.
+2. Set `"paperMd.html.enabled": true`.
+
+The page loads from disk in an iframe with `sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads"`. It has no `allow-same-origin`, so its scripts cannot reach the panel or the VS Code API. Relative CSS, scripts and images load from the file's folder. The panel reloads the page each time you save the file. Unsaved edits do not show, because the iframe reads the saved file. **Edit as text** reopens the file as text. The panel does not remember the scroll position of HTML pages.
+
 ## Settings
 
 - `paperMd.customCss` (string): CSS added after the built-in paper style.
 - `paperMd.followPanel.autoOpen` (boolean, default `false`): open the follow panel when a Markdown text editor becomes active.
 - `paperMd.followPanel.replaceTextTab` (boolean, default `false`): show the follow panel in place of the Markdown text tab.
 - `paperMd.pdf.enabled` (boolean, default `false`): show `.pdf` files in the follow panel. Needs `replaceTextTab`.
+- `paperMd.html.enabled` (boolean, default `false`): show `.html` and `.htm` files in the follow panel. Needs `replaceTextTab`.
 
 Open-time measurements are written to **View > Output > Paper MD**.
 

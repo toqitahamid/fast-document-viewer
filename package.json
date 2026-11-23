@@ -1,0 +1,66 @@
+{
+  "name": "paper-md-viewer",
+  "version": "0.1.0",
+  "description": "Fast read-only Markdown viewer with a printed-paper look and KaTeX math.",
+  "main": "./extension.js",
+  "license": "MIT",
+  "dependencies": {
+    "@vscode/markdown-it-katex": "^1.1.2",
+    "highlight.js": "^11.12.0",
+    "katex": "^0.16.47",
+    "markdown-it": "^14.3.3",
+    "markdown-it-task-lists": "^2.1.1"
+  },
+  "displayName": "Paper MD Viewer",
+  "publisher": "toqitahamid",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/toqitahamid/paper-md-viewer.git"
+  },
+  "keywords": ["markdown", "viewer", "preview", "katex", "paper", "remote-ssh"],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "extensionKind": [
+    "ui"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCustomEditor:paperMd.viewer"
+  ],
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "paperMd.viewer",
+        "displayName": "Paper MD Viewer",
+        "priority": "option",
+        "selector": [
+          {
+            "filenamePattern": "*.md"
+          },
+          {
+            "filenamePattern": "*.markdown"
+          }
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "paperMd.openAsText",
+        "title": "Paper MD: Open as Text"
+      }
+    ],
+    "configuration": {
+      "title": "Paper MD Viewer",
+      "properties": {
+        "paperMd.customCss": {
+          "type": "string",
+          "default": "",
+          "description": "CSS appended after the built-in paper CSS."
+        }
+      }
+    }
+  }
+}

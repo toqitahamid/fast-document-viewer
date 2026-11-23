@@ -239,7 +239,8 @@ class FollowPanel {
       log(`editor change ${name}: no panel (closed by user or autoOpen off)`);
       return;
     }
-    if (replace) setTimeout(() => this.closeTextTabs(doc.uri), 0);
+    // Close the text tab at once (no timer) so it is visible for as short a time as possible.
+    if (replace) this.closeTextTabs(doc.uri);
   }
 
   onDocClose(d) { this.asText.delete(d.uri.toString()); }

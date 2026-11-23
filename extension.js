@@ -98,6 +98,41 @@ function openLink(href, document, mdEditor) {
   vscode.commands.executeCommand('vscode.openWith', target, isMd(target) ? mdEditor : 'default');
 }
 
+// One reused panel for HTML pages. The page's own HTML becomes the webview
+// document, with a <base> tag so relative CSS, JS and images load next to the
+// file. (An iframe pointing at the file's resource URL stays blank in Cursor.)
+// There is no message handler, so page scripts cannot drive the extension.
+class HtmlPanel {
+  constructor(ctx) { this.ctx = ctx; this.panel = undefined; this.uri = undefined; }
+
+  show(uri, text, column, reload) {
+    const t0 = Date.now();
+    const dir = dirOf(uri);
+    if (!this.panel) {
+      this.panel = vscode.window.createWebviewPanel('paperMd.html', 'Paper HTML',
+        { viewColumn: column || vscode.ViewColumn.Active, preserveFocus: false },
+        { enableScripts: true, enableForms: true, retainContextWhenHidden: true, enableFindWidget: true,
+          localResourceRoots: [...rootsFor(this.ctx, uri)] });
+      this.panel.onDidDispose(() => { this.panel = undefined; this.uri = undefined; });
+    } else {
+      const wv = this.panel.webview;
+      const roots = wv.options.localResourceRoots || [];
+      if (!inRoots(roots, dir)) wv.options = { ...wv.options, localResourceRoots: [...roots, dir] };
+      if (column) this.panel.reveal(column, false);
+    }
+    const name = uri.path.split('/').pop();
+    this.uri = uri;
+    this.panel.title = 'Paper: ' + name;
+    const base = `<base href="${this.panel.webview.asWebviewUri(dir).toString()}/">`;
+    const m = /<head[^>]*>/i.exec(text);
+    let html = m ? text.slice(0, m.index + m[0].length) + base + text.slice(m.index + m[0].length) : base + text;
+    // The same html string would not reload the page; make each set unique.
+    html += `\n<!-- paper-md ${Date.now()} -->`;
+    this.panel.webview.html = html;
+    log(`html ${name}: ${Math.round(text.length / 1024)} KB set in HTML panel${reload ? ' (reload after save)' : ''}, ${Date.now() - t0} ms`);
+  }
+}
+
 // Mode 1: each .md file in its own tab (custom editor). About 1 s per new tab in Cursor.
 class Provider {
   constructor(ctx) { this.ctx = ctx; }
@@ -149,6 +184,7 @@ class FollowPanel {
     this.timer = undefined;
     this.userClosed = false;
     this.asText = new Set(); // documents the user chose to read as text
+    this.htmlPanel = new HtmlPanel(ctx);
     this.pdfBusy = new Set(); // PDF keys being loaded (re-entry guard)
     this.lastPdf = { key: '', at: 0 }; // duplicate guard for tab events
   }
@@ -302,9 +338,10 @@ class FollowPanel {
   }
 
   onDocSave(d) {
-    if (this.panel && this.current && this.current.kind === 'html' && this.current.uri.toString() === d.uri.toString()) {
+    const h = this.htmlPanel;
+    if (h.panel && h.uri && h.uri.toString() === d.uri.toString()) {
       log(`html ${d.uri.path.split('/').pop()}: saved, reloading`);
-      this.showHtml(d.uri, true);
+      h.show(d.uri, d.getText(), undefined, true);
     }
   }
 
@@ -326,15 +363,20 @@ class FollowPanel {
     const name = doc.uri.path.split('/').pop();
     if (this.asText.has(doc.uri.toString())) { log(`editor change ${name}: kept as text (Edit as text)`); return; }
     const replace = this.replaceMode();
+    if (html) {
+      // HTML pages use their own reused panel (see HtmlPanel).
+      log(`editor change ${name}: showing in HTML panel`);
+      this.htmlPanel.show(doc.uri, doc.getText(), editor.viewColumn, false);
+      if (replace) this.closeTextTabs(doc.uri);
+      return;
+    }
     if (this.panel) {
       log(`editor change ${name}: updating panel` + (replace ? ' in place' : ''));
-      if (html) this.showHtml(doc.uri);
-      else if (!this.doc || this.doc.uri.toString() !== doc.uri.toString()) this.show(doc);
+      if (!this.doc || this.doc.uri.toString() !== doc.uri.toString()) this.show(doc);
       if (replace) this.panel.reveal(editor.viewColumn, false);
     } else if (!this.userClosed && vscode.workspace.getConfiguration('paperMd').get('followPanel.autoOpen')) {
       log(`editor change ${name}: opening panel` + (replace ? ' in place' : ' beside'));
-      if (html) { this.open(undefined, false, editor.viewColumn, doc.uri); this.showHtml(doc.uri); }
-      else this.open(doc, false, editor.viewColumn);
+      this.open(doc, false, editor.viewColumn);
     } else {
       log(`editor change ${name}: no panel (closed by user or autoOpen off)`);
       return;
@@ -377,6 +419,9 @@ function activate(ctx) {
     vscode.commands.registerCommand('paperMd.openAsText', (uri) => {
       uri = uri || (vscode.window.activeTextEditor && vscode.window.activeTextEditor.document.uri)
         || (vscode.window.tabGroups.activeTabGroup.activeTab && vscode.window.tabGroups.activeTabGroup.activeTab.input && vscode.window.tabGroups.activeTabGroup.activeTab.input.uri);
+      // From the HTML panel: open its page as text and keep it as text.
+      const h = follow.htmlPanel;
+      if (!uri && h.panel && h.panel.active && h.uri) { uri = h.uri; follow.asText.add(uri.toString()); }
       if (uri) vscode.commands.executeCommand('vscode.openWith', uri, 'default');
     }),
   );

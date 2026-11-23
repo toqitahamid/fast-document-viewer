@@ -52,12 +52,12 @@ PDFs open at 100% (actual size). The toolbar has zoom out, zoom in, Fit (fit wid
 
 ## HTML
 
-The follow panel can also show `.html` and `.htm` files. Cursor opens them as text, and the panel replaces that tab.
+`.html` and `.htm` files open as rendered pages in a second reused panel, **Paper HTML**. Cursor opens them as text, and the panel replaces that tab.
 
 1. Set `"paperMd.followPanel.replaceTextTab": true` and `"paperMd.followPanel.autoOpen": true`.
 2. Set `"paperMd.html.enabled": true`.
 
-The page loads from disk in an iframe with `sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads"`. It has no `allow-same-origin`, so its scripts cannot reach the panel or the VS Code API. Relative CSS, scripts and images load from the file's folder. The panel reloads the page each time you save the file. Unsaved edits do not show, because the iframe reads the saved file. **Edit as text** reopens the file as text. The panel does not remember the scroll position of HTML pages.
+The page's HTML becomes the panel document, with a `<base>` tag added so relative CSS, scripts and images load from the file's folder. Its scripts run. The panel has no message handler, so page scripts cannot drive the extension. Open only HTML files you trust: their scripts can use the network. The page reloads when you save the file. Run **Paper MD: Open as Text** to read the source.
 
 ## Settings
 

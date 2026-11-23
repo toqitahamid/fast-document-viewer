@@ -79,7 +79,7 @@ function shell(ctx, wv, bodyHtml, opts) {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${wv.cspSource} https: data: blob:; style-src ${wv.cspSource} 'unsafe-inline'; font-src ${wv.cspSource}; script-src 'nonce-${n}' ${wv.cspSource}; worker-src blob:; connect-src ${wv.cspSource};">
 <style>${noStyleEnd(kcss)}</style><style>${noStyleEnd(a.paperCss)}</style>
 <style>${noStyleEnd(custom)}</style></head>
-<body data-key="${esc(opts.key || '')}" data-pdfjs="${mediaUri('pdf.min.js')}" data-pdfworker="${mediaUri('pdf.worker.min.js')}">${button}<div id="pdfbar" hidden><button id="pdf-out" title="Zoom out">&minus;</button><button id="pdf-in" title="Zoom in">+</button><button id="pdf-fit" title="Fit width">Fit</button><span id="pdf-page"></span></div><div id="pdf" hidden></div><div id="content">${bodyHtml}</div>
+<body data-key="${esc(opts.key || '')}" data-pdfjs="${mediaUri('pdf.min.js')}" data-pdfworker="${mediaUri('pdf.worker.min.js')}">${button}<div id="pdfbar" hidden><button id="pdf-out" title="Zoom out">&minus;</button><button id="pdf-in" title="Zoom in">+</button><button id="pdf-fit" title="Fit width">Fit</button><button id="pdf-100" title="Actual size">100%</button><span id="pdf-page"></span></div><div id="pdf" hidden></div><div id="content">${bodyHtml}</div>
 <script nonce="${n}">${a.mainJs.replace(/<\/script/gi, '')}</script></body></html>`;
 }
 

@@ -48,7 +48,7 @@ The follow panel can also show `.pdf` files, so a PDF opens in the same reused p
 2. Set `"paperMd.pdf.enabled": true`.
 3. Add `"*.pdf": "default"` to `workbench.editorAssociations`, so Cursor opens its own editor first. The extension then shows the file in the panel and closes that tab.
 
-The panel fits the page width and has zoom buttons and a page counter. It remembers the scroll position and zoom of each PDF. The PDF must still be copied over SSH once each time you open it. pdf.js 3.11.174 (Apache 2.0) is bundled and loads on the first PDF only.
+PDFs open at 100% (actual size). The toolbar has zoom out, zoom in, Fit (fit width), 100%, and a page and zoom counter. It remembers the scroll position and zoom of each PDF. The PDF must still be copied over SSH once each time you open it. pdf.js 3.11.174 (Apache 2.0) is bundled and loads on the first PDF only.
 
 ## Settings
 

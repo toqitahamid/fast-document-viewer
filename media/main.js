@@ -71,8 +71,12 @@
 
   const fitWidth = () => Math.max(100, document.documentElement.clientWidth - 32);
 
+  // Zoom is absolute: 1 = 100% (1 PDF point = 4/3 CSS px, as in pdf.js and Acrobat).
+  const CSS_PER_PT = 4 / 3;
+  const fitZoom = () => fitWidth() / (pdf.pages[0].w * CSS_PER_PT);
+
   function sizePage(pg) {
-    const w = fitWidth() * pdf.zoom;
+    const w = (pg.w || pdf.pages[0].w) * CSS_PER_PT * pdf.zoom;
     const ratio = (pg.h || pdf.pages[0].h) / (pg.w || pdf.pages[0].w);
     pg.div.style.width = w + 'px';
     pg.div.style.height = w * ratio + 'px';
@@ -89,7 +93,7 @@
       if (pdf !== p || p.gen !== gen) return;
       const base = page.getViewport({ scale: 1 });
       if (pg.w !== base.width || pg.h !== base.height) { pg.w = base.width; pg.h = base.height; sizePage(pg); }
-      const cssW = fitWidth() * p.zoom;
+      const cssW = base.width * CSS_PER_PT * p.zoom;
       const vp = page.getViewport({ scale: cssW / base.width });
       let dpr = window.devicePixelRatio || 1;
       const maxPx = 16e6;
@@ -151,12 +155,12 @@
     for (let i = 0; i < pdf.pages.length; i++) {
       if (pdf.pages[i].div.offsetTop <= probe) cur = i; else break;
     }
-    pageLabel.textContent = (cur + 1) + ' / ' + pdf.pages.length;
+    pageLabel.textContent = (cur + 1) + ' / ' + pdf.pages.length + '  ' + Math.round(pdf.zoom * 100) + '%';
   }
 
   function setZoom(z) {
     if (!pdf) return;
-    pdf.zoom = Math.min(5, Math.max(0.4, z));
+    pdf.zoom = Math.min(5, Math.max(0.25, z));
     relayout();
   }
 
@@ -223,7 +227,8 @@
 
   document.getElementById('pdf-out').addEventListener('click', () => setZoom(pdf ? pdf.zoom / 1.2 : 1));
   document.getElementById('pdf-in').addEventListener('click', () => setZoom(pdf ? pdf.zoom * 1.2 : 1));
-  document.getElementById('pdf-fit').addEventListener('click', () => setZoom(1));
+  document.getElementById('pdf-fit').addEventListener('click', () => setZoom(pdf ? fitZoom() : 1));
+  document.getElementById('pdf-100').addEventListener('click', () => setZoom(1));
   let rsTimer; let lastW = document.documentElement.clientWidth;
   window.addEventListener('resize', () => {
     clearTimeout(rsTimer);

@@ -1,6 +1,11 @@
 (function () {
   const vscode = acquireVsCodeApi();
   const content = document.getElementById('content');
+  const t = { origin: performance.timeOrigin, dom: Date.now() };
+  window.addEventListener('load', () => {
+    t.load = Date.now();
+    requestAnimationFrame(() => { t.paint = Date.now(); vscode.postMessage({ type: 'timing', t }); });
+  });
   document.getElementById('edit-btn').addEventListener('click', () => vscode.postMessage({ type: 'edit' }));
   window.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'render') {

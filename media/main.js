@@ -160,6 +160,25 @@
     relayout();
   }
 
+  // The message channel may deliver bytes as ArrayBuffer, a typed array, a
+  // serialized Node Buffer ({type:'Buffer', data:[...]}), an array, or an
+  // object with numeric keys. Turn any of them into a Uint8Array.
+  function toBytes(d) {
+    if (!d) throw new Error('no PDF data received');
+    if (d instanceof Uint8Array) return d;
+    if (d instanceof ArrayBuffer) return new Uint8Array(d);
+    if (ArrayBuffer.isView(d)) return new Uint8Array(d.buffer, d.byteOffset, d.byteLength);
+    if (Array.isArray(d)) return Uint8Array.from(d);
+    if (d.type === 'Buffer' && Array.isArray(d.data)) return Uint8Array.from(d.data);
+    if (typeof d === 'object') {
+      const n = typeof d.length === 'number' ? d.length : Object.keys(d).length;
+      const out = new Uint8Array(n);
+      for (let i = 0; i < n; i++) out[i] = d[i];
+      return out;
+    }
+    throw new Error('unexpected PDF data type: ' + typeof d);
+  }
+
   async function showPdf(m) {
     const my = ++seq;
     if (mode === 'md') scrolls.set(currentKey, window.scrollY); else savePdfState();
@@ -171,7 +190,7 @@
     try {
       const lib = await loadLib();
       if (my !== seq) return;
-      const doc = await lib.getDocument({ data: m.data, isEvalSupported: false }).promise;
+      const doc = await lib.getDocument({ data: toBytes(m.data), isEvalSupported: false }).promise;
       if (my !== seq) { doc.destroy(); return; }
       const first = await doc.getPage(1);
       if (my !== seq) { doc.destroy(); return; }

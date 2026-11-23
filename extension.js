@@ -260,7 +260,9 @@ class FollowPanel {
       this.doc = undefined;
       this.panel.title = 'Paper: ' + name;
       this.panel.reveal(column || this.panel.viewColumn, false);
-      this.panel.webview.postMessage({ type: 'pdf', key, name, data, sent: Date.now() });
+      // Send a plain ArrayBuffer: a Node Buffer can arrive in the webview as a plain object.
+      const buf = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+      this.panel.webview.postMessage({ type: 'pdf', key, name, data: buf, sent: Date.now() });
       this.closeTextTabs(uri);
     } catch (e) {
       log(`pdf ${name}: failed: ${e && e.message}`);

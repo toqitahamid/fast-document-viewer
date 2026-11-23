@@ -229,6 +229,32 @@
   document.getElementById('pdf-in').addEventListener('click', () => setZoom(pdf ? pdf.zoom * 1.2 : 1));
   document.getElementById('pdf-fit').addEventListener('click', () => setZoom(pdf ? fitZoom() : 1));
   document.getElementById('pdf-100').addEventListener('click', () => setZoom(1));
+
+  // Trackpad pinch (and Ctrl + mouse wheel) arrive as wheel events with ctrlKey.
+  // Resize the pages at once, keep the point under the fingers fixed, and
+  // redraw the canvases sharply when the gesture pauses.
+  let pinchTimer;
+  window.addEventListener('wheel', (e) => {
+    if (mode !== 'pdf' || !pdf || !e.ctrlKey) return;
+    e.preventDefault();
+    const old = pdf.zoom;
+    const z = Math.min(5, Math.max(0.25, old * Math.exp(-e.deltaY * 0.01)));
+    if (z === old) return;
+    const docX = window.scrollX + e.clientX;
+    const docY = window.scrollY + e.clientY;
+    pdf.zoom = z;
+    for (const pg of pdf.pages) sizePage(pg);
+    const r = z / old;
+    window.scrollTo(docX * r - e.clientX, docY * r - e.clientY);
+    updatePage();
+    clearTimeout(pinchTimer);
+    pinchTimer = setTimeout(() => {
+      if (!pdf) return;
+      pdf.gen++;
+      for (const pg of pdf.pages) if (pg.task) { try { pg.task.cancel(); } catch (err) { /* ignore */ } pg.task = null; }
+      observe();
+    }, 200);
+  }, { passive: false });
   let rsTimer; let lastW = document.documentElement.clientWidth;
   window.addEventListener('resize', () => {
     clearTimeout(rsTimer);

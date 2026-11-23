@@ -107,3 +107,30 @@ html.pdf-mode, html.pdf-mode body { background: #525659; }
 #content .tex-pdffig { display: inline-block; max-width: 100%; vertical-align: middle; }
 #content .tex-pdffig img { display: block; width: 100%; height: auto; background: #fff; }
 #content .tex-partof { font: 12px sans-serif; color: #888; margin: 0 0 1em; text-align: left; }
+#content .tex-sp { display: inline-block; height: 1px; }
+#content .tex-rule { border-top: 1px solid #000; height: 0; vertical-align: middle; }
+#content .tex-fa { font-size: 0.9em; margin-right: 0.15em; }
+#content p.tex-hf { display: flex; justify-content: space-between; gap: 1em; text-align: left; }
+#content p.tex-hf > .tex-hr { text-align: right; flex: 0 0 auto; }
+#content .tex-cols { display: flex; gap: 1em; align-items: flex-start; }
+#content .tex-col { flex: 1 1 auto; min-width: 0; }
+#content .tex-col:last-child:not(:first-child) { flex: 0 0 auto; max-width: 40%; text-align: right; }
+#content .tex-col > p { margin: 0.1em 0; }
+#content .tex-right { text-align: right; }
+#content table.tex-tab.wide { width: 100%; }
+#content table.tex-tab.wide td:last-child:not(:first-child) { text-align: right; }
+#content ul.tex-nolab { list-style: none; padding-left: 0; }
+#content .tex-sp { display: inline-block; height: 1px; }
+#content .tex-rule { border-top: 1px solid #000; height: 0; vertical-align: middle; }
+#content .tex-fa { font-size: 0.9em; margin-right: 0.15em; }
+#content p.tex-hf { display: flex; justify-content: space-between; gap: 1em; text-align: left; }
+#content p.tex-hf > .tex-hr { text-align: right; flex: 0 0 auto; }
+#content .tex-cols { display: flex; gap: 1em; align-items: flex-start; }
+#content .tex-col { flex: 1 1 auto; min-width: 0; }
+#content .tex-col:last-child:not(:first-child) { flex: 0 0 auto; max-width: 40%; text-align: right; }
+#content .tex-col > p { margin: 0.1em 0; }
+#content .tex-right { text-align: right; }
+#content table.tex-tab.wide { width: 100%; }
+#content table.tex-tab.wide td:last-child:not(:first-child) { text-align: right; }
+#content ul.tex-nolab { list-style: none; padding-left: 0; }
+#content table.tex-tab.norule { border: 0; }

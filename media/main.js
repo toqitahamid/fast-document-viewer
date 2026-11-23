@@ -206,14 +206,19 @@
     frame.src = m.src;
   }
 
+  // A re-show of the same key (a recompiled PDF) keeps the old pages on screen until the new
+  // document is loaded, then swaps them at once and restores zoom and reading position.
   async function showPdf(m) {
     const my = ++seq;
+    const same = mode === 'pdf' && !!pdf && currentKey === m.key;
     if (mode === 'md') scrolls.set(currentKey, window.scrollY); else savePdfState();
-    closePdf();
-    currentKey = m.key;
-    setMode('pdf');
-    pageLabel.textContent = 'Loading...';
-    window.scrollTo(0, 0);
+    if (!same) {
+      closePdf();
+      currentKey = m.key;
+      setMode('pdf');
+      pageLabel.textContent = 'Loading...';
+      window.scrollTo(0, 0);
+    }
     try {
       const lib = await loadLib();
       if (my !== seq) return;
@@ -232,17 +237,21 @@
         p.pages.push({ div, canvas: null, gen: 0, task: null, w: i === 0 ? v.width : 0, h: i === 0 ? v.height : 0 });
         frag.appendChild(div);
       }
+      const old = same ? pdf : null;
+      const oldCanvases = old ? old.pages.map((pg) => pg.canvas) : [];
+      if (old) closePdf();
       pdf = p;
       shownSent = m.sent || 0;
       for (const pg of p.pages) sizePage(pg);
       pdfEl.appendChild(frag);
+      // Show the old page images until the new ones are drawn (no blank flash).
+      oldCanvases.forEach((c, i) => { if (c && p.pages[i]) { p.pages[i].div.appendChild(c); p.pages[i].canvas = c; } });
       window.scrollTo(0, saved.frac * document.documentElement.scrollHeight);
       observe();
       updatePage();
     } catch (e) {
       if (my === seq) {
-        pageLabel.textContent = '';
-        pdfEl.textContent = 'Could not show this PDF: ' + (e && e.message);
+        if (!same) { pageLabel.textContent = ''; pdfEl.textContent = 'Could not show this PDF: ' + (e && e.message); }
         vscode.postMessage({ type: 'pdfError', message: String(e && e.message) });
       }
     }
@@ -377,9 +386,32 @@
     requestAnimationFrame(() => { scrollQueued = false; updatePage(); });
   }, { passive: true });
 
+  // ---- Banner over the page (compile errors, "Compiling...") ----
+  let bannerEl = null;
+  function setBanner(text, level) {
+    if (!text) { if (bannerEl) bannerEl.style.display = 'none'; return; }
+    if (!bannerEl) {
+      bannerEl = document.createElement('div');
+      bannerEl.id = 'paper-banner';
+      bannerEl.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:50;padding:8px 36px 8px 14px;font:13px/1.4 var(--vscode-font-family,sans-serif);white-space:pre-wrap;max-height:40vh;overflow:auto;box-shadow:0 2px 6px rgba(0,0,0,.3)';
+      const x = document.createElement('span');
+      x.textContent = '\u00d7'; x.title = 'Dismiss';
+      x.style.cssText = 'position:absolute;top:4px;right:12px;cursor:pointer;font-size:18px';
+      x.addEventListener('click', () => { bannerEl.style.display = 'none'; });
+      bannerEl.appendChild(x);
+      bannerEl.appendChild(document.createElement('div'));
+      document.body.appendChild(bannerEl);
+    }
+    bannerEl.style.display = '';
+    bannerEl.style.background = level === 'info' ? '#2b5797' : '#b3261e';
+    bannerEl.style.color = '#fff';
+    bannerEl.lastChild.textContent = text;
+  }
+
   window.addEventListener('message', (e) => {
     const m = e.data;
     if (!m) return;
+    if (m.type === 'banner') { setBanner(m.text, m.level); return; }
     if (m.type === 'pdf') { showPdf(m); return; }
     if (m.type === 'html') { showHtml(m); return; }
     if (m.type !== 'render') return;

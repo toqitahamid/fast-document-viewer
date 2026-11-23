@@ -1,6 +1,6 @@
 {
   "name": "paper-md-viewer",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Fast read-only Markdown viewer with a printed-paper look and KaTeX math.",
   "main": "./extension.js",
   "license": "MIT",
@@ -67,6 +67,14 @@
       {
         "command": "paperMd.openFollowPanel",
         "title": "Paper MD: Open Follow Panel"
+      },
+      {
+        "command": "paperMd.recompileTex",
+        "title": "Paper MD: Recompile TeX"
+      },
+      {
+        "command": "paperMd.openTexLog",
+        "title": "Paper MD: Open TeX Log"
       }
     ],
     "configuration": {
@@ -101,6 +109,25 @@
           "type": "boolean",
           "default": false,
           "description": "Show .tex files as a rendered approximation of the compiled paper in the Paper MD follow panel instead of as text. Needs paperMd.followPanel.replaceTextTab. No TeX engine is used: \\input files, math, figures, tables and references are converted to HTML. Use the \"Edit as text\" button to read the source."
+        },
+        "paperMd.tex.mode": {
+          "type": "string",
+          "enum": [
+            "html",
+            "compile"
+          ],
+          "default": "html",
+          "description": "How .tex files are shown (needs paperMd.tex.enabled). \"html\": converted to HTML without a TeX engine. \"compile\": the root document is compiled with latexmk on your local machine and the real PDF is shown; it is recompiled when you save a .tex, .sty, .cls or .bib file."
+        },
+        "paperMd.tex.texPath": {
+          "type": "string",
+          "default": "/Library/TeX/texbin",
+          "description": "Folder with latexmk and the TeX engines. It is put in front of PATH when compiling."
+        },
+        "paperMd.tex.maxMirrorMB": {
+          "type": "number",
+          "default": 200,
+          "description": "Compile mode copies the root's folder (TeX-related files only) to local disk. Stop and report when the copy would be larger than this many MB."
         }
       }
     }

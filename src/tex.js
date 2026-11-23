@@ -152,7 +152,7 @@ function defineColor(st, name, model, spec) {
 // ---------- accents and symbols ----------
 const ACC = { "'": '́', '`': '̀', '^': '̂', '"': '̈', '~': '̃', '=': '̄', '.': '̇', u: '̆', v: '̌', H: '̋', c: '̧', k: '̨', r: '̊', d: '̣', b: '̱' };
 const SYM = {
-  eg: 'e.g.', ie: 'i.e.', etal: 'et al.', cf: 'cf.', etc: 'etc.', vs: 'vs.', ldots: '…', dots: '…', textellipsis: '…', LaTeX: 'LaTeX', TeX: 'TeX', BibTeX: 'BibTeX', S: '§', P: '¶',
+  onedot: '.', eg: 'e.g.', ie: 'i.e.', etal: 'et al.', cf: 'cf.', etc: 'etc.', vs: 'vs.', ldots: '…', dots: '…', textellipsis: '…', LaTeX: 'LaTeX', TeX: 'TeX', BibTeX: 'BibTeX', S: '§', P: '¶',
   dag: '†', ddag: '‡', textdagger: '†', textdaggerdbl: '‡', copyright: '©', textregistered: '®',
   texttrademark: '™', ss: 'ß', o: 'ø', O: 'Ø', ae: 'æ', AE: 'Æ', oe: 'œ', OE: 'Œ',
   aa: 'å', AA: 'Å', l: 'ł', L: 'Ł', i: 'ı', j: 'ȷ', textbullet: '•', textasciitilde: '~',
@@ -163,8 +163,9 @@ const SYM = {
   quad: ' ', qquad: '  ', enspace: ' ', thinspace: ' ', hfill: ' ', ',': ' ', ';': ' ', ':': ' ', ' ': ' ',
   '%': '%', '&': '&amp;', _: '_', '#': '#', $: '$', '{': '{', '}': '}', '!': '', '/': '', '-': '', '@': '', '|': '|',
 };
-const XSPACE = new Set(['eg', 'ie', 'etal', 'cf', 'etc', 'vs']);
-const NOOP = new Set(['onedot', 'undefined', 'centering', 'raggedright', 'raggedleft', 'noindent', 'indent', 'newpage', 'clearpage', 'cleardoublepage',
+const IGN2 = { newsavebox: 'a',  setmainfont: 'aoo', setsansfont: 'aoo', setmonofont: 'aoo', fontspec: 'aoo', newfontfamily: 'aaoo', titleformat: '*aaaaao', titlespacing: '*aaaa', Needspace: '*a', needspace: 'a', urlstyle: 'a', AtBeginEnvironment: 'aa', AtEndEnvironment: 'aa', setcolumnwidth: 'a', columnratio: 'a', setmathfont: 'aoo', newfontface: 'aaoo', defaultfontfeatures: 'oa', addfontfeatures: 'a' };
+const XSPACE = new Set(['onedot', 'eg', 'ie', 'etal', 'cf', 'etc', 'vs']);
+const NOOP = new Set(['hfil', 'enskip', 'justifying', 'titlerule', 'Justifying', 'undefined', 'raggedright', 'noindent', 'indent', 'newpage', 'clearpage', 'cleardoublepage',
   'pagebreak', 'nopagebreak', 'small', 'footnotesize', 'scriptsize', 'tiny', 'large', 'Large', 'LARGE', 'huge', 'Huge', 'normalsize',
   'normalfont', 'rmfamily', 'upshape', 'mdseries', 'selectfont', 'relax', 'protect', 'ignorespaces', 'xspace', 'strut', 'leavevmode',
   'null', 'nobreak', 'allowbreak', 'unskip', 'vfill', 'smallskip', 'medskip', 'bigskip', 'tableofcontents', 'listoffigures',
@@ -181,7 +182,7 @@ const IGN = {
   Crefname: 'aaa', definecolor: 'aaa', colorlet: 'aa', graphicspath: 'a', DeclareGraphicsExtensions: 'a', newlength: 'a',
   AtBeginDocument: 'a', AtEndDocument: 'a', externaldocument: 'oa', usetikzlibrary: 'a', lstset: 'a', floatname: 'aa',
   theoremstyle: 'a', numberwithin: 'aa', patchcmd: 'aaaaa', typeout: 'a', geometry: 'a', pgfplotsset: 'a', tikzset: 'a',
-  addcontentsline: 'aaa', thanks: 'a', vspace: '*a', hspace: '*a', vskip: '', hskip: '', phantom_: 'a', fontsize: 'aa', newcolumntype: 'aoa',
+  addcontentsline: 'aaa', thanks: 'a', phantom_: 'a', fontsize: 'aa', newcolumntype: 'aoa',
   SetKwInOut: 'aa', SetKwFunction: 'aa', SetKw: 'aa', SetKwInput: 'aa', SetKwProg: 'aaaa', label_: 'a', index: 'a', glossary: 'a',
   newcommand: 'aoa', renewcommand: 'aoa', providecommand: 'aoa', DeclareRobustCommand: 'aoa', newif: 'a', let: 'aa',
   captionsetup: 'oa', setcitestyle: 'a', bibliographystyle_: 'a', renewenvironment: 'aaa', newenvironment: 'aaa', newtheorem: 'aaa',
@@ -189,6 +190,20 @@ const IGN = {
   icmltitlerunning: 'a', icmlsetsymbol: 'aa', icmlkeywords: 'a', icmlaffiliation: 'aa', icmlcorrespondingauthor: 'aa', icmlauthor: 'aa',
   icmlEqualContribution: '', sisetup: 'a', addbibresource: 'a', cvprfinalcopy: '', nocite_: 'a', vphantom: 'a', hphantom: 'a',
 };
+const UNIT_PX = { pt: 1.33, bp: 1.33, em: 16, ex: 8, cm: 37.8, mm: 3.78, in: 96, pc: 16, dd: 1.4, cc: 16, sp: 0, mu: 0.9 };
+const DIMRE = /^\s*([-+]?\s*(?:\d+\.?\d*|\.\d+)?)\s*(pt|em|ex|cm|mm|in|bp|sp|pc|dd|cc|mu|\\(?:wd|ht|dp)\s*\\[A-Za-z@]+|\\[A-Za-z@]+)(?:\s+plus\s*[-+]?[\d.]*\s*(?:fil+|pt|em|ex|cm|mm|in|\\[A-Za-z@]+))?(?:\s+minus\s*[-+]?[\d.]*\s*(?:fil+|pt|em|ex|cm|mm|in|\\[A-Za-z@]+))?/;
+function dimPx(m) {
+  const num = m[1].replace(/\s/g, '');
+  const f = num === '' || num === '-' || num === '+' ? (num === '-' ? -1 : 1) : parseFloat(num);
+  const u = m[2];
+  if (u[0] === '\\') return /^\\(?:textwidth|linewidth|columnwidth|hsize|paperwidth)$/.test(u) ? f * 700 : 0;
+  return f * (UNIT_PX[u] || 0);
+}
+function parseDim(str) { const m = DIMRE.exec(String(str)); return m ? dimPx(m) : 0; }
+function consumeDim(r) { const m = DIMRE.exec(r.s.slice(r.i, r.i + 160)); if (!m) return 0; r.i += m[0].length; return dimPx(m); }
+const spaceSpan = (px) => (px > 0.5 ? '<span class="tex-sp" style="width:' + Math.min(Math.round(px), 300) + 'px"></span>' : '');
+const FA = { envelope: '\u2709', phone: '\u260e', mobile: '\u260e', linkedin: 'in', linkedinin: 'in', github: 'gh', gitlab: 'gl', twitter: 'tw', globe: '\ud83c\udf10', globeamericas: '\ud83c\udf10', link: '\ud83d\udd17', externallink: '\u2197', graduationcap: '\ud83c\udf93', mapmarker: '\ud83d\udccd', mapmarkeralt: '\ud83d\udccd', mappin: '\ud83d\udccd', home: '\u2302', calendar: '\ud83d\udcc5', user: '\ud83d\udc64', building: '\ud83c\udfe2', briefcase: '\ud83d\udcbc', book: '\ud83d\udcd6', google: 'G', googlescholar: 'GS', orcid: 'iD', star: '\u2605', check: '\u2713' };
+Object.assign(IGN, IGN2);
 const DIM = /^\s*[-+]?[\d.]*\s*(?:pt|em|ex|cm|mm|in|bp|sp|pc|dd|cc|\\[a-zA-Z]+)(?:\s+(?:plus|minus)\s*[-+]?[\d.]+\s*(?:pt|em|ex|cm|mm|in|fil+|\\[a-zA-Z]+))*/;
 const THEOREMS = { theorem: 'Theorem', lemma: 'Lemma', proposition: 'Proposition', corollary: 'Corollary', definition: 'Definition', remark: 'Remark', example: 'Example', claim: 'Claim', conjecture: 'Conjecture', assumption: 'Assumption', observation: 'Observation', notation: 'Notation', problem: 'Problem', fact: 'Fact', property: 'Property', hypothesis: 'Hypothesis', note: 'Note' };
 const SILENT_ENVS = new Set(['small', 'footnotesize', 'scriptsize', 'tiny', 'large', 'Large', 'normalsize', 'spacing', 'singlespace', 'doublespace', 'onehalfspace', 'multicols', 'appendices', 'subequations', 'titlepage', 'raggedright', 'raggedleft', 'sloppypar', 'document', 'minipage_', 'adjustwidth', 'framed', 'mdframed', 'tcolorbox', 'center_', 'figurebox', 'threeparttable', 'tablenotes', 'landscape', 'sidewaystable_', 'otherlanguage', 'CJK', 'bibunit', 'table_']);
@@ -340,6 +355,36 @@ async function flatten(text, st, depth) {
 const normTex = (p) => require('path').posix.normalize(String(p).replace(/^\.\//, '')).replace(/\.tex$/i, '');
 const sameTex = (a, b) => normTex(a) === normTex(b);
 
+// Definitions from local .sty / .cls files named in \usepackage, \RequirePackage or \documentclass.
+async function collectLocalPackages(text, st) {
+  const cut = text.indexOf('\\begin{document}');
+  const head = cut >= 0 ? text.slice(0, cut) : text;
+  const names = [];
+  const re = /\\(usepackage|RequirePackage|documentclass|LoadClass)\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}/g; let m;
+  while ((m = re.exec(head))) for (const n of m[2].split(',')) { const t = n.trim(); if (t && !/^https?:/.test(t)) names.push([t, m[1] === 'documentclass' || m[1] === 'LoadClass' ? 'cls' : 'sty']); }
+  const seen = st.pkgSeen || (st.pkgSeen = new Set());
+  const todo = names.filter(([n, e]) => { const k = n + '.' + e; if (seen.has(k) || seen.size > 40) return false; seen.add(k); return true; });
+  await Promise.all(todo.map(async ([n, e]) => {
+    let txt = null;
+    try { txt = await st.readFile(n + '.' + e); } catch (err) { txt = null; }
+    if (typeof txt !== 'string') return;
+    try {
+      txt = stripComments(extractVerbatim(txt, st));
+      const saved = st.cond; st.cond = [];
+      const flat = await flatten(txt, st, 5);
+      st.cond = saved;
+      await collectLocalPackages(flat, st);
+      scanFonts(flat, st);
+      const sd = /\\setcounter\s*\{secnumdepth\}\s*\{(-?\d+)\}/.exec(flat); if (sd) st.secnumdepth = parseInt(sd[1], 10);
+      extractDefs(flat, st); // only the definitions matter; the rest is discarded
+    } catch (err) { /* never throw */ }
+  }));
+}
+function scanFonts(text, st) {
+  const f = /\\newfontfamily\s*\\([A-Za-z]+)/g; let m;
+  while ((m = f.exec(text))) st.fontNames.add(m[1]);
+}
+
 async function loadInput(p, st, depth, isSubfile) {
   const note = (msg) => '\\@texnote{' + msg + '}';
   if (depth >= st.maxDepth) return note('input depth limit: ' + p);
@@ -372,6 +417,7 @@ const PROTECT = new Set(['section', 'subsection', 'subsubsection', 'paragraph', 
   'date', 'label', 'ref', 'eqref', 'cite', 'citep', 'citet', 'caption', 'captionof', 'item', 'begin', 'end', 'includegraphics', 'input',
   'footnote', 'textbf', 'textit', 'emph', 'texttt', 'url', 'href', 'bibliography', 'appendix', 'cref', 'Cref', 'autoref', 'color', 'textcolor']);
 
+const INTERNAL = /\\(?:futurelet|@ifnextchar|@ifstar|@let@token|expandafter|csname|afterassignment|@ifundefined|ifx\\@)/;
 function parseDef(kind, star, text, i, st) {
   const nameAt = () => {
     i = skipWs(text, i);
@@ -390,7 +436,7 @@ function parseDef(kind, star, text, i, st) {
     if (/^the(table|figure|equation)$/.test(name)) {
       const pm = /^([A-Za-z]*)\\arabic\{/.exec(body.trim());
       if (pm) st.numPrefix[name.slice(3)] = pm[1];
-    } else if (!st.builtin.has(name) && !(kind === 'providecommand' && st.macros.has(name))) {
+    } else if (!st.builtin.has(name) && !INTERNAL.test(body) && !(kind === 'providecommand' && st.macros.has(name))) {
       st.macros.set(name, { n, def, body });
     }
     return i;
@@ -400,7 +446,7 @@ function parseDef(kind, star, text, i, st) {
     const j = text.indexOf('{', i); if (j < 0) return null;
     const params = text.slice(i, j).trim();
     const g = readGroup(text, j);
-    if (/^(#\d)*$/.test(params) && !st.builtin.has(name)) st.macros.set(name, { n: params.length / 2, def: null, body: g.text });
+    if (/^(#\d)*$/.test(params) && !st.builtin.has(name) && !INTERNAL.test(g.text)) st.macros.set(name, { n: params.length / 2, def: null, body: g.text });
     return g.end;
   }
   if (kind === 'DeclareMathOperator') {
@@ -410,15 +456,22 @@ function parseDef(kind, star, text, i, st) {
   }
   if (/^(newenvironment|renewenvironment)$/.test(kind)) {
     const name = group(); if (name == null) return null;
-    const nopt = optional(); if (nopt != null) optional();
+    const nopt = optional(); const edef = nopt != null ? optional() : null;
     const b = group(); const e = group(); if (b == null || e == null) return null;
-    st.envs.set(name.trim(), { n: nopt != null ? parseInt(nopt, 10) || 0 : 0, begin: b, end: e });
+    st.envs.set(name.trim(), { n: nopt != null ? parseInt(nopt, 10) || 0 : 0, def: edef, begin: b, end: e });
     return i;
   }
   if (/^(NewDocumentCommand|DeclareDocumentCommand|RenewDocumentCommand)$/.test(kind)) {
     const name = nameAt(); const spec = group(); const body = group();
     if (name == null || spec == null || body == null) return null;
-    if (/^[m\s]*$/.test(spec) && !st.builtin.has(name)) st.macros.set(name, { n: spec.replace(/\s/g, '').length, def: null, body });
+    if (!st.builtin.has(name)) {
+      const toks = []; const tre = /([mo])|O\{([^{}]*)\}/g; let tm;
+      while ((tm = tre.exec(spec))) toks.push(tm[1] ? { k: tm[1] } : { k: 'O', d: tm[2] });
+      const optAt = toks.findIndex((x) => x.k !== 'm');
+      if (toks.length && (optAt === -1 || (optAt === 0 && toks.slice(1).every((x) => x.k === 'm')))) {
+        st.macros.set(name, { n: toks.length, def: optAt === 0 ? (toks[0].d || '') : null, body });
+      }
+    }
     return i;
   }
   if (kind === 'newcolumntype') { group(); optional(); return group() == null ? null : i; }
@@ -479,6 +532,8 @@ function extractDefs(text, st) {
   return out.join('');
 }
 
+const INFLOW_DEFS = new Set(['def', 'gdef', 'edef', 'xdef', 'newcommand', 'renewcommand', 'providecommand', 'DeclareRobustCommand', 'let']);
+
 function expandMacros(text, st, depth) {
   if (depth > 25 || (!st.macros.size && !st.envs.size)) return text;
   const n = text.length;
@@ -497,14 +552,40 @@ function expandMacros(text, st, depth) {
         if (env && st.budget-- > 0) {
           let p = g.end; let rep;
           if (name === 'begin') {
-            const args = [];
-            for (let a = 0; a < env.n; a++) { const q2 = skipWs(text, p); const ar = readArg(text, q2); args.push(ar.text); p = ar.end; }
+            const args = []; let a0 = 0;
+            if (env.def !== null && env.def !== undefined && env.n > 0) {
+              const q2 = skipWs(text, p);
+              if (text[q2] === '[') { const b = readBracket(text, q2); if (b) { args.push(b.text); p = b.end; } else args.push(env.def); } else args.push(env.def);
+              a0 = 1;
+            }
+            for (let a = a0; a < env.n; a++) { const q2 = skipWs(text, p); const ar = readArg(text, q2); args.push(ar.text); p = ar.end; }
             rep = env.begin.replace(/#(\d)/g, (mm, d) => (args[+d - 1] != null ? args[+d - 1] : ''));
           } else rep = env.end;
           out += text.slice(last, j) + expandMacros(rep, st, depth + 1); last = p; i = p; continue;
         }
       }
       i = k; continue;
+    }
+    if (st.envs.size && depth < 25) { // an environment used as a command: \name ... \endname
+      const isEnd = name.startsWith('end') && st.envs.has(name.slice(3));
+      const env = isEnd ? st.envs.get(name.slice(3)) : (st.envs.has(name) && !st.macros.has(name) ? st.envs.get(name) : null);
+      if (env && st.budget-- > 0) {
+        let p = k; let rep;
+        if (isEnd) rep = env.end;
+        else {
+          const args = [];
+          for (let a = 0; a < env.n; a++) { const q2 = skipWs(text, p); const ar = readArg(text, q2); args.push(ar.text); p = ar.end; }
+          rep = env.begin.replace(/#(\d)/g, (mm, d) => (args[+d - 1] != null ? args[+d - 1] : ''));
+        }
+        out += text.slice(last, j) + expandMacros(rep, st, depth + 1); last = p; i = p; continue;
+      }
+    }
+    if (INFLOW_DEFS.has(name)) { // a definition produced by an expansion: run it now, in text order
+      let q = k; let star = false;
+      if (text[q] === '*') { star = true; q++; }
+      let end = null;
+      try { end = parseDef(name, star, text, q, st); } catch (e) { end = null; }
+      if (end != null) { out += text.slice(last, j); last = end; i = end; continue; }
     }
     const rec = st.macros.get(name);
     if (!rec || st.budget-- <= 0) { i = k; continue; }
@@ -529,7 +610,12 @@ function expandMacros(text, st, depth) {
       keepSpace = /\\xspace\s*$/.test(rec.body) && e > p;
       p = e;
     }
-    let body = rec.body.replace(/#(#|\d)/g, (mm, d) => (d === '#' ? '#' : (args[+d - 1] != null ? args[+d - 1] : '')));
+    let body = rec.body.replace(/#(#|\d)/g, (mm, d, off, whole) => {
+      if (d === '#') return '#';
+      const a = args[+d - 1] != null ? args[+d - 1] : '';
+      // "\small#3" must not turn into the control word "\smallPh"
+      return /^[A-Za-z@]/.test(a) && /\\[A-Za-z@]+$/.test(whole.slice(0, off)) ? ' ' + a : a;
+    });
     body = body.replace(/\\xspace(?![A-Za-z@])/g, '');
     out += text.slice(last, j) + expandMacros(body, st, depth + 1) + (keepSpace ? ' ' : '');
     last = p; i = p;
@@ -604,7 +690,17 @@ const ENV = {};
 class Run {
   constructor(conv, s, inline) { this.c = conv; this.s = s; this.n = s.length; this.i = 0; this.inline = inline; this.html = ''; this.para = ''; }
   text(t) { this.para += t; }
-  flush() { if (!this.inline) { const t = this.para.trim(); if (t) this.html += '<p>' + t + '</p>'; this.para = ''; } }
+  flush() {
+    if (this.inline) return;
+    let t = this.para.trim(); let cls = '';
+    if (t.includes('\u0004')) {
+      const k = t.indexOf('\u0004');
+      const l = t.slice(0, k).trim(); const rr = t.slice(k + 1).replace(/\u0004/g, ' ').trim();
+      if (l && rr) { t = '<span class="tex-hl">' + l + '</span><span class="tex-hr">' + rr + '</span>'; cls = ' class="tex-hf"'; } else t = (l + ' ' + rr).trim();
+    }
+    if (t) this.html += '<p' + cls + '>' + t + '</p>';
+    this.para = '';
+  }
   block(h) { if (this.inline) this.para += h; else { this.flush(); this.html += h; } }
   ws() { while (this.i < this.n && isWs(this.s.charCodeAt(this.i))) this.i++; }
   arg() { this.ws(); if (this.i >= this.n) return ''; const a = readArg(this.s, this.i); this.i = a.end; return a.text; }
@@ -628,7 +724,7 @@ class Conv {
     this.floats = []; this.subTop = 0; this.footnotes = [];
     this.title = null; this.author = null; this.date = null; this.titleDone = false;
     this.capType = null; this.appendix = false; this.cellBg = null; this.listDepth = 0;
-    this.algoDepth = 0; this.algoLn = 0; this.algoNum = false; this.inAlgo = false; this.quiet = false;
+    this.boxes = new Map(); this.algoDepth = 0; this.algoLn = 0; this.algoNum = false; this.inAlgo = false; this.quiet = false;
     this.images = new Map(); this.bibItems = null; this.bibNames = []; this.bibWanted = false; this.bibFiles = new Map();
     this.hasChapter = /\\chapter(?![A-Za-z])/.test(st.text || '');
     this.stats = { sections: 0, equations: 0, numberedEquations: 0, figures: 0, tables: 0, algorithms: 0, citations: 0, uniqueCited: 0, unresolvedRefs: 0, katexErrors: 0, katexSamples: [], unknown: new Map(), unknownEnvs: new Map(), inputs: 0, errors: 0 };
@@ -727,8 +823,25 @@ class Conv {
   }
 
   unknownCmd(r, name, word) {
-    this.unk('\\' + name);
     const s = r.s;
+    if (/^fa[A-Z]/.test(name) || this.st.fontNames.has(name)) { // icon fonts and font-switch commands: no command name in the text
+      if (/^fa[A-Z]/.test(name)) { r.opt(); r.para += '<span class="tex-fa">' + esc(FA[name.slice(2).toLowerCase()] || '') + '</span>'; }
+      return;
+    }
+    { // an unknown wrapper whose first argument is a URL: a link (second argument is the text)
+      const j = skipWs(s, r.i);
+      if (s[j] === '{') {
+        const g = readGroup(s, j);
+        if (/^\s*(https?:\/\/|mailto:|www\.)/i.test(g.text)) {
+          const url = g.text.trim(); const href = /^www\./i.test(url) ? 'https://' + url : url;
+          const k = skipWs(s, g.end);
+          if (s[k] === '{') { const g2 = readGroup(s, k); r.i = g2.end; r.para += '<a href="' + escAttr(href) + '">' + r.inl(g2.text) + '</a>'; }
+          else { r.i = g.end; r.para += '<a href="' + escAttr(href) + '">' + esc(url) + '</a>'; }
+          return;
+        }
+      }
+    }
+    this.unk('\\' + name);
     if (s[r.i] === '*' && (s[r.i + 1] === '{' || s[r.i + 1] === '[')) r.i++;
     if (s[r.i] === '[') { const b = readBracket(s, r.i); if (b && s[skipWs(s, b.end)] === '{') r.i = b.end; }
   }
@@ -825,7 +938,9 @@ class Conv {
   heading(r, name) {
     const levels = { chapter: 0, section: 1, subsection: 2, subsubsection: 3, paragraph: 4, subparagraph: 5 };
     const level = levels[name];
-    const star = r.star(); r.opt(); const title = r.arg();
+    let star = r.star(); r.opt(); const title = r.arg();
+    const sd = this.st.secnumdepth == null ? 3 : this.st.secnumdepth;
+    if (level > sd) star = true;
     let num = '';
     if (!star && level <= 3) {
       if (level === 0) { this.chap++; this.sec = [0, 0, 0]; num = String(this.chap); }
@@ -940,7 +1055,7 @@ class Conv {
     r.block('<div class="tex-cap" id="' + this.last.id + '"><span class="tex-capno">' + word + ' ' + esc(num) + ':</span> ' + html + '</div>');
   }
 
-  tabular(content, spec) {
+  tabular(content, spec, wide) {
     const aligns = parseCols(spec || '');
     const rows = splitAt(content, rowSep);
     const out = []; // { cells: [...], top, cm, bg }
@@ -971,7 +1086,8 @@ class Conv {
       }
       out.push({ cells: splitAt(s, cellSep), top, cm, bg });
     }
-    let html = '<div class="tex-tabwrap"><table class="tex-tab"><tbody>';
+    const anyRule = out.some((row) => row.top || row.bottom || row.cm.length);
+    let html = '<div class="tex-tabwrap"><table class="tex-tab' + (wide ? ' wide' : '') + (anyRule ? '' : ' norule') + '"><tbody>';
     out.forEach((row, ri) => {
       let col = 0; let tr = '';
       for (const cell of row.cells) {
@@ -999,8 +1115,8 @@ class Conv {
   }
 
   list(r, kind, content) {
-    const a = new AR(content); a.opt();
-    if (kind !== 'description') { /* enumitem options already skipped */ }
+    const a = new AR(content); const lopt = a.opt();
+    const nolab = kind === 'itemize' && lopt != null && /label\s*=\s*\{\s*(?:\\empty)?\s*\}/.test(lopt);
     const parts = splitAt(a.rest(), itemSep);
     const depth = this.listDepth++;
     let html = '';
@@ -1020,7 +1136,7 @@ class Conv {
         else html += '<li>' + h + '</li>';
       }
     } finally { this.listDepth = depth; }
-    if (kind === 'itemize') r.block('<ul class="tex-list">' + html + '</ul>');
+    if (kind === 'itemize') r.block('<ul class="tex-list' + (nolab ? ' tex-nolab' : '') + '">' + html + '</ul>');
     else if (kind === 'enumerate') r.block('<ol class="tex-list" type="' + ['1', 'a', 'i', 'A'][Math.min(depth, 3)] + '">' + html + '</ol>');
     else r.block('<dl class="tex-list">' + html + '</dl>');
   }
@@ -1064,9 +1180,15 @@ function alignOf(spec) {
 function parseCols(spec) {
   let s = String(spec);
   for (let k = 0; k < 4; k++) s = s.replace(/\*\s*\{(\d+)\}\s*\{([^{}]*)\}/g, (m, n, x) => x.repeat(Math.min(+n, 40)));
-  s = s.replace(/[@!<>]\s*\{[^{}]*\}/g, '').replace(/\|/g, '').replace(/([A-Za-z])\s*\{[^{}]*\}/g, '$1');
   const out = [];
-  for (const ch of s) if (/[A-Za-z]/.test(ch)) out.push(/[cC]/.test(ch) ? 'c' : /[rRS]/.test(ch) ? 'r' : 'l');
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if ('@!<>'.includes(ch)) { const j = skipWs(s, i + 1); if (s[j] === '{') i = readGroup(s, j).end - 1; continue; }
+    if (!/[A-Za-z]/.test(ch)) continue;
+    const j = skipWs(s, i + 1);
+    if (s[j] === '{') i = readGroup(s, j).end - 1;
+    out.push(/[cC]/.test(ch) ? 'c' : /[rRS]/.test(ch) ? 'r' : 'l');
+  }
   return out;
 }
 
@@ -1107,10 +1229,26 @@ Object.assign(H, {
   shortstack: (r) => { r.opt(); r.text(r.inl(r.arg())); },
   subcaptionbox: (r) => { r.opt(); const cap = r.arg(); r.opt(); r.opt(); const body = r.arg(); r.block(r.c.subFigure(r, body + '\\caption{' + cap + '}', null)); },
   today: (r) => { r.text(esc(new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }))); },
+  setcounter: (r) => { const n = r.arg().trim(); const v = parseInt(r.arg(), 10); if (n === 'secnumdepth' && !Number.isNaN(v)) r.c.st.secnumdepth = v; },
+  kern: (r) => { r.para += spaceSpan(consumeDim(r)); }, hskip: (r) => { r.para += spaceSpan(consumeDim(r)); }, mskip: (r) => { consumeDim(r); },
+  vskip: (r) => { consumeDim(r); },
+  hspace: (r) => { r.star(); const a = r.arg(); r.para += /\\fill|fil/.test(a) ? ' ' : spaceSpan(parseDim(a)); },
+  vspace: (r) => { r.star(); r.arg(); },
+  rule: (r) => { r.opt(); const w = parseDim(r.arg()); const h = parseDim(r.arg()); if (h > 0 && h <= 3 && w > 0) r.para += '<span class="tex-sp tex-rule" style="width:' + Math.min(Math.round(w), 700) + 'px"></span>'; },
+  hfill: (r) => { r.para += r.inline ? ' ' : '\u0004'; },
+  centering: (r) => { if (r.inline) return; alignRest(r, 'tex-center'); },
+  raggedleft: (r) => { if (r.inline) return; alignRest(r, 'tex-right'); },
+  sbox: (r) => { const nm = r.arg().replace(/^\\/, ''); const body = r.arg(); r.c.boxes.set(nm, body); },
+  savebox: (r) => { const nm = r.arg().replace(/^\\/, ''); r.opt(); r.opt(); const body = r.arg(); r.c.boxes.set(nm, body); },
+  usebox: (r) => { const nm = r.arg().replace(/^\\/, ''); r.para += r.inl(r.c.boxes.get(nm) || ''); },
+  copy: (r) => { const nm = r.arg().replace(/^\\/, ''); r.para += r.inl(r.c.boxes.get(nm) || ''); },
+  box: (r) => { const nm = r.arg().replace(/^\\/, ''); r.para += r.inl(r.c.boxes.get(nm) || ''); },
+  cleaders: () => {}, leaders: () => {}, xleaders: () => {},
+  wd: (r) => { r.arg(); }, ht: (r) => { r.arg(); }, dp: (r) => { r.arg(); },
+  faIcon: (r) => { r.opt(); const n = r.arg().replace(/[^A-Za-z]/g, '').toLowerCase(); r.para += '<span class="tex-fa">' + esc(FA[n] || '') + '</span>'; },
   '\\': (r) => { r.star(); r.opt(); r.text('<br>'); },
   newline: (r) => { r.text('<br>'); }, linebreak: (r) => { r.opt(); r.text('<br>'); },
   par: (r) => { if (!r.inline) r.flush(); else r.text(' '); },
-  hfill: (r) => { r.text(' '); },
   '@verbblock': (r) => { const k = +r.arg(); r.block('<pre class="tex-verb"><code>' + esc(r.c.st.verb[k] || '') + '</code></pre>'); },
   '@verbinline': (r) => { const k = +r.arg(); r.text('<code class="tt">' + esc(r.c.st.verb[k] || '') + '</code>'); },
   '@texnote': (r) => { r.text('<span class="tex-note">[' + esc(r.arg()) + ']</span>'); },
@@ -1228,6 +1366,10 @@ for (const k of ['cite', 'citep', 'citet', 'citealp', 'citealt', 'citeauthor', '
 for (const [k, mode] of [['ref', 'ref'], ['eqref', 'eqref'], ['autoref', 'auto'], ['cref', 'cref'], ['Cref', 'Cref'], ['crefrange', 'cref'], ['vref', 'cref'], ['pageref', 'page'], ['nameref', 'page'], ['cpageref', 'page']]) {
   H[k] = (r) => { r.star(); const keys = r.arg(); r.text('\u0001R\u0002' + mode + '\u0002' + keys.replace(/\s+/g, '') + '\u0001'); };
 }
+function alignRest(r, cls) { // \centering / \raggedleft: the rest of the group becomes an aligned block
+  const rest = r.s.slice(r.i); r.i = r.n;
+  r.flush(); r.html += '<div class="' + cls + '">' + r.c.run(rest, false) + '</div>';
+}
 // declarations that apply to the rest of the group
 function declWrap(r, open, close) {
   const rest = r.s.slice(r.i); r.i = r.n;
@@ -1280,6 +1422,17 @@ Object.assign(ENV, {
     r.c.bibWanted = true; r.block('\u0001B\u0001');
   },
   proof: (r, n, content) => { const a = new AR(content); const o = a.opt(); r.block('<div class="tex-thm tex-proof"><i>' + (o != null ? r.inl(o) : 'Proof') + '.</i> ' + r.c.run(a.rest(), false) + ' <span class="tex-qed">∎</span></div>'); },
+  adjustwidth: (r, n, content) => { const a = new AR(content); a.opt(); a.arg(); a.arg(); r.content(a.rest()); },
+  multicols: (r, n, content) => { const a = new AR(content); a.arg(); a.opt(); r.content(a.rest()); },
+  otherlanguage: (r, n, content) => { const a = new AR(content); a.arg(); r.content(a.rest()); },
+  tcolorbox: (r, n, content) => { const a = new AR(content); a.opt(); r.content(a.rest()); },
+  mdframed: (r, n, content) => { const a = new AR(content); a.opt(); r.content(a.rest()); },
+  paracol: (r, n, content) => {
+    const a = new AR(content); a.arg(); a.opt();
+    const cols = splitAt(a.rest(), (s2, i) => (s2[i] === '\\' && s2.startsWith('\\switchcolumn', i) && !isLet(s2.charCodeAt(i + 13)) ? 13 : 0));
+    if (cols.length < 2) { r.content(cols[0] || ''); return; }
+    r.block('<div class="tex-cols">' + cols.map((c2) => '<div class="tex-col">' + r.c.run(c2.replace(/^\s*\[\*?\]/, ''), false) + '</div>').join('') + '</div>');
+  },
   tikzpicture: (r) => { r.block('<div class="tex-gfx tex-block">TikZ drawing (not rendered)</div>'); },
   pgfpicture: (r) => { r.block('<div class="tex-gfx tex-block">PGF drawing (not rendered)</div>'); },
   picture: (r) => { r.block('<div class="tex-gfx tex-block">picture (not rendered)</div>'); },
@@ -1291,7 +1444,7 @@ function tabEnv(hasWidth) {
     const a = new AR(content); a.opt(); if (hasWidth) a.arg(); a.opt();
     const spec = a.arg();
     if (name === 'longtable') r.c.capType = 'table';
-    r.block(r.c.tabular(a.rest(), spec || ''));
+    r.block(r.c.tabular(a.rest(), spec || '', hasWidth));
   };
 }
 for (const nm of ['equation', 'displaymath', 'math', 'align', 'alignat', 'xalignat', 'flalign', 'gather', 'multline', 'eqnarray']) {
@@ -1382,7 +1535,7 @@ function newState(opts) {
     baseName: opts.baseName || 'main', maxDepth: opts.maxDepth || 10,
     part: opts.part ? { rel: opts.part.rel, text: opts.part.text, used: false } : null, verb: [], cond: [], flags: new Map(), stack: [], inputCount: 0,
     macros: new Map(), envs: new Map(), colors: new Map(), theorems: new Map(), graphicsPath: [],
-    crefLow: {}, crefCap: {}, numPrefix: {}, eqWithin: false, budget: 60000, katexMacros: {}, text: '', builtin: null,
+    fontNames: new Set(), pkgSeen: null, secnumdepth: null, crefLow: {}, crefCap: {}, numPrefix: {}, eqWithin: false, budget: 60000, katexMacros: {}, text: '', builtin: null,
   };
   st.builtin = new Set([...Object.keys(H), ...PROTECT]);
   return st;
@@ -1436,6 +1589,9 @@ async function texToHtml(text, opts) {
     }
     let t = stripComments(extractVerbatim(src, st));
     t = await flatten(t, st, 0);
+    st.cond = [];
+    await collectLocalPackages(t, st);
+    scanFonts(t, st);
     for (let pass = 0; pass < 4; pass++) {
       st.cond = [];
       t = extractDefs(t, st);
@@ -1507,7 +1663,7 @@ async function texToHtml(text, opts) {
     if (conv.footnotes.length) {
       html += '<section class="tex-footnotes"><hr><ol>' + conv.footnotes.map((f) => '<li id="fn-' + f.n + '">' + f.html + ' <a class="tex-fnback" href="#fnref-' + f.n + '">↩</a></li>').join('') + '</ol></section>';
     }
-    html = html.replace(/[\u0000-\u0003]/g, '');
+    html = html.replace(/[\u0000-\u0004]/g, '');
     const stats = conv.stats;
     stats.ms = Date.now() - t0; stats.rootName = opts.rootName;
     stats.unknownTop = [...stats.unknown.entries()].sort((a, b2) => b2[1] - a[1]).slice(0, 15);

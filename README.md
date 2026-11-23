@@ -78,7 +78,33 @@ What it converts:
 
 A section file (for example `sec/1_intro.tex`) is shown with the context of its root document: macros, `\graphicspath`, section, figure and equation numbers, labels, and the `.bbl`, with paths relative to the root folder. The root comes from a `% !TEX root = ../main.tex` comment, or else from a `.tex` file with `\documentclass` in the same folder or up to two parent folders that inputs this file (`main.tex` is preferred). Only the opened file's text is shown, under a gray "Part of main.tex" line. A file with its own `\documentclass` is its own root.
 
+Local `.sty` and `.cls` files named in `\usepackage` or `\documentclass` are read from the root folder, and their macros, environments and colors are used. TeX spacing primitives (`\kern`, `\hskip`, `\hspace`, `\rule`) become small spaces. An unknown command with a URL as first argument becomes a link, and FontAwesome icons become small glyphs. A line with `\hfill`, a `paracol` or a `tabular*` keeps its left and right parts apart. `\setcounter{secnumdepth}{0}` turns section numbers off.
+
 Use **Edit as text** to read the source. Each re-render reads the included files again (an open editor tab counts as the latest text).
+
+## LaTeX (compile mode)
+
+Set `"paperMd.tex.mode": "compile"` (with the `.tex` settings above) to see the real PDF for any design: CVs, papers, custom `.sty` and `.cls` files. The HTML preview stays the default and needs no TeX.
+
+How it works:
+
+1. When a `.tex` file becomes active, the extension finds its root document (same rules as the HTML preview).
+2. It shows the cached PDF of that root at once, even if it is out of date. If there is none yet, it shows the HTML preview with a "Compiling..." note.
+3. It copies the root's folder tree to local disk (`globalStorageUri`, one folder per root; nothing is written into your project). Only files whose size or modification time changed are copied. It copies TeX-related files only (`.tex .sty .cls .bst .bib .bbl`, images, PDFs, fonts and similar), skips folders `.git`, `node_modules`, `__pycache__`, `.venv` and names that start with `.`, skips files over 25 MB, and goes at most 6 folders deep. If the copy would be larger than `paperMd.tex.maxMirrorMB`, it stops and shows the size in the banner.
+4. It runs `latexmk -pdf|-pdfxe|-pdflua -interaction=nonstopmode -file-line-error -halt-on-error -synctex=1` in the copy, with a 180 s limit and one compile per root at a time. A save during a compile triggers one more run when it ends.
+5. The new PDF replaces the old one in the panel. Scroll position and zoom are kept.
+
+The engine is chosen from the root and its local preamble files: `fontspec`, `unicode-math`, `xeCJK`, `polyglossia` or `% !TEX program = xelatex` give XeLaTeX; `luacode`, `\directlua`, `luatexja` or `% !TEX program = lualatex` give LuaLaTeX; everything else gives pdfLaTeX. Bibliographies use BibTeX as latexmk does. For biblatex with biber, install biber or keep a current `.bbl` next to the root; the copy includes it.
+
+Recompiles run when you save a `.tex`, `.sty`, `.cls` or `.bib` file in the root's folder tree. The status bar shows `TeX: compiling...`, `TeX: ok 2.3 s` or `TeX: error`. The first error appears as a red banner over the last good PDF, and the full log path is written to the **Paper MD** output channel. Commands: **Paper MD: Recompile TeX** (copies everything again and rebuilds) and **Paper MD: Open TeX Log**.
+
+Requirements:
+
+- The extension runs on your local machine (`extensionKind: ["ui"]`), so TeX must be installed there, not on the remote host. On macOS, BasicTeX installs to `/Library/TeX/texbin`, which is not on the `PATH` of spawned processes; that is why `paperMd.tex.texPath` exists. Change it if TeX is elsewhere.
+- A missing package shows `Missing package x.sty. Install with: sudo tlmgr install x`. With BasicTeX, run `tlmgr search --global --file x.sty` to find the package name.
+- Disk use: one local copy of the root's folder tree (up to `paperMd.tex.maxMirrorMB`) plus the build files, per root. Delete the extension's `globalStorage` folder to clear them.
+- LaTeX Workshop, if installed, may also build local files on save. The two builds use different folders and do not clash, but they use CPU twice.
+- Not done yet: SyncTeX jumps between the source and the PDF.
 
 ## Settings
 
@@ -88,6 +114,9 @@ Use **Edit as text** to read the source. Each re-render reads the included files
 - `paperMd.pdf.enabled` (boolean, default `false`): show `.pdf` files in the follow panel. Needs `replaceTextTab`.
 - `paperMd.html.enabled` (boolean, default `false`): show `.html` and `.htm` files in the follow panel. Needs `replaceTextTab`.
 - `paperMd.tex.enabled` (boolean, default `false`): show `.tex` files as a rendered preview in the follow panel. Needs `replaceTextTab`.
+- `paperMd.tex.mode` (`"html"` or `"compile"`, default `"html"`): `html` converts the source to HTML. `compile` builds the real PDF with latexmk (see below).
+- `paperMd.tex.texPath` (string, default `/Library/TeX/texbin`): folder with `latexmk` and the engines. It is put in front of `PATH` for the compile.
+- `paperMd.tex.maxMirrorMB` (number, default `200`): size limit for the local copy of the root's folder.
 
 Open-time measurements are written to **View > Output > Paper MD**.
 

@@ -3,6 +3,7 @@ const vscode = require('vscode');
 const { createRenderer } = require('./src/render');
 const { texToHtml } = require('./src/tex');
 const { findRoots } = require('./src/texroot');
+const tc = require('./src/texcompile');
 
 const VIEW_TYPE = 'paperMd.viewer';
 const FOLLOW_TYPE = 'paperMd.follow';
@@ -193,6 +194,119 @@ class FollowPanel {
     this.texSeq = 0; // bumps on every LaTeX render; older results are dropped
     this.rootCache = new Map(); // tex uri -> candidate root paths
     this.texCache = new Map(); // uri -> { text, at } for \input files read from disk
+    this.compiler = new tc.Compiler();
+    this.compileRoot = undefined; // root Uri of the compiled preview now shown
+    this.status = undefined; // status bar item, created on first compile
+  }
+
+  // ---- compile mode (real TeX engine, see src/texcompile.js) ----
+  compileMode() {
+    return this.texMode() && vscode.workspace.getConfiguration('paperMd').get('tex.mode') === 'compile';
+  }
+
+  banner(text, level) {
+    if (this.panel) this.panel.webview.postMessage({ type: 'banner', text: text || '', level: level || 'error' });
+  }
+
+  setStatus(text, tip) {
+    if (!vscode.window.createStatusBarItem) return;
+    if (!this.status) { this.status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment ? vscode.StatusBarAlignment.Left : 1, 0); this.status.command = 'paperMd.openTexLog'; }
+    this.status.text = text; this.status.tooltip = tip || 'Open the TeX log';
+    this.status.show();
+  }
+
+  hideStatus() { if (this.status) this.status.hide(); }
+
+  cacheDir(rootUri) {
+    const base = this.ctx.globalStorageUri ? this.ctx.globalStorageUri.fsPath : require('os').tmpdir();
+    return tc.cacheDirFor(base, rootUri.toString());
+  }
+
+  rootPdf(rootUri) {
+    return require('path').join(this.cacheDir(rootUri), 'out', rootUri.path.split('/').pop().replace(/\.tex$/i, '') + '.pdf');
+  }
+
+  // Post the compiled PDF with a stable key per root, so scroll and zoom survive recompiles.
+  postCompiled(rootUri, pdfPath, stale) {
+    if (!this.panel) return;
+    const fsn = require('fs');
+    const data = fsn.readFileSync(pdfPath);
+    const buf = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+    const name = rootUri.path.split('/').pop().replace(/\.tex$/i, '.pdf');
+    this.panel.title = 'Paper: ' + name + ' (compiled)';
+    this.panel.webview.postMessage({ type: 'pdf', key: rootUri.toString() + '#compiled', name, data: buf, sent: Date.now() });
+    log(`tex compile: showing ${stale ? 'cached ' : ''}${name}, ${Math.round(data.length / 1024)} KB`);
+  }
+
+  async showCompiled(document) {
+    if (!this.panel) return;
+    const uri = document.uri;
+    const seq = ++this.texSeq;
+    this.doc = document;
+    this.current = { kind: 'tex', uri };
+    this.ensureRoot(uri);
+    const roots = await this.findTexRoots(uri, document.getText());
+    if (!this.panel || seq !== this.texSeq) return;
+    const rootUri = roots.length ? uri.with({ path: roots[0] }) : uri;
+    this.compileRoot = rootUri;
+    const pdf = this.rootPdf(rootUri);
+    if (require('fs').existsSync(pdf)) {
+      this.postCompiled(rootUri, pdf, true);
+    } else {
+      await this.showTexHtml(document);
+      this.banner('Compiling\u2026', 'info');
+    }
+    this.compileRootNow(rootUri, false);
+  }
+
+  // Mirror the root folder, then compile. One run per root; a request during a run reruns once.
+  compileRootNow(rootUri, force) {
+    const key = rootUri.toString();
+    this.setStatus('TeX: compiling\u2026');
+    this.compiler.request(key, async () => {
+      const cache = this.cacheDir(rootUri);
+      const maxMB = vscode.workspace.getConfiguration('paperMd').get('tex.maxMirrorMB') || 200;
+      const m = await tc.mirror(vscode, dirOf(rootUri), cache, { maxMB, force });
+      if (m.tooBig) {
+        log(`tex mirror: ${m.files} files, ${(m.totalBytes / 1048576).toFixed(1)} MB is over paperMd.tex.maxMirrorMB (${maxMB})`);
+        return { ok: false, banner: `The folder of ${rootUri.path.split('/').pop()} holds ${(m.totalBytes / 1048576).toFixed(0)} MB of TeX-related files. This is over paperMd.tex.maxMirrorMB (${maxMB}). Raise the setting or move the paper to a smaller folder.` };
+      }
+      log(`tex mirror: ${m.scanned} scanned, ${m.files} kept, ${m.copied} copied (${(m.bytes / 1048576).toFixed(2)} MB), ${m.removed} removed, ${m.ms} ms`);
+      const rootFile = require('path').join(cache, 'src', rootUri.path.split('/').pop());
+      const texPath = vscode.workspace.getConfiguration('paperMd').get('tex.texPath');
+      const res = await tc.compile(rootFile, cache, { texPath, force, timeoutMs: this.compileTimeoutMs });
+      res.rootUri = rootUri;
+      return res;
+    }, (res, again) => {
+      const name = rootUri.path.split('/').pop();
+      if (res.ok) {
+        let kb = 0;
+        try { kb = Math.round(require('fs').statSync(res.pdf).size / 1024); } catch (e) { /* ignore */ }
+        log(`tex compile ${name}: ok, ${res.engine}, ${res.ms} ms, PDF ${kb} KB`);
+        if (!again) this.setStatus(`TeX: ok ${(res.ms / 1000).toFixed(1)} s`);
+        if (this.compileRoot && this.compileRoot.toString() === key && this.current && this.current.kind === 'tex') {
+          this.postCompiled(rootUri, res.pdf, false);
+          this.banner('');
+        }
+      } else {
+        log(`tex compile ${name}: failed${res.engine ? ' (' + res.engine + ')' : ''}, ${res.ms || 0} ms. ${String(res.banner || '').split('\n')[0]}${res.logPath ? ' Log: ' + res.logPath : ''}`);
+        if (!again) this.setStatus('TeX: error');
+        if (this.compileRoot && this.compileRoot.toString() === key) this.banner(res.banner, 'error');
+      }
+      this.lastLog = res.logPath || this.lastLog;
+    });
+  }
+
+  // A .tex/.sty/.cls/.bib file was saved: recompile the root whose folder tree holds it.
+  async compileOnSave(d) {
+    if (!this.compileMode() || !/\.(tex|sty|cls|bib)$/i.test(d.uri.path)) return;
+    let root = this.compileRoot;
+    if (!root || !inRoots([dirOf(root)], d.uri)) {
+      if (!isTex(d.uri)) return;
+      const roots = await this.findTexRoots(d.uri, d.getText());
+      root = roots.length ? d.uri.with({ path: roots[0] }) : d.uri;
+    }
+    this.compileRootNow(root, false);
   }
 
   replaceMode() {
@@ -278,6 +392,8 @@ class FollowPanel {
     this.doc = document;
     this.current = { kind: 'md', uri: document.uri };
     this.panel.title = 'Paper: ' + document.uri.path.split('/').pop();
+    this.banner('');
+    this.hideStatus();
     const t = Date.now();
     const html = renderDoc(wv, document);
     this.lastRenderMs = Date.now() - t;
@@ -320,8 +436,12 @@ class FollowPanel {
     return roots;
   }
 
+  showTex(document) {
+    return this.compileMode() ? this.showCompiled(document) : this.showTexHtml(document);
+  }
+
   // Render a .tex file (async because of \input) and post it to the panel.
-  async showTex(document) {
+  async showTexHtml(document) {
     if (!this.panel) return;
     const uri = document.uri;
     const key = uri.toString();
@@ -410,6 +530,7 @@ class FollowPanel {
       const readMs = Date.now() - t0;
       if (!this.panel) return; // panel closed while reading
       log(`pdf ${name}: ${Math.round(data.byteLength / 1024)} KB, read ${readMs} ms`);
+      this.banner('');
       this.lastPdf = { key, at: Date.now() };
       this.doc = undefined;
       this.current = { kind: 'pdf', uri };
@@ -437,6 +558,7 @@ class FollowPanel {
     this.ensureRoot(uri);
     const name = uri.path.split('/').pop();
     this.doc = undefined;
+    this.banner('');
     this.current = { kind: 'html', uri };
     this.panel.title = 'Paper: ' + name;
     // Add a cache-busting query only on reload after a save, so the first open uses the plain resource URL.
@@ -447,6 +569,7 @@ class FollowPanel {
 
   onDocSave(d) {
     if (isTex(d.uri)) { this.rootCache.clear(); this.texCache.clear(); }
+    this.compileOnSave(d).catch((e) => log('tex compile on save: ' + (e && e.message)));
     const h = this.htmlPanel;
     if (h.panel && h.uri && h.uri.toString() === d.uri.toString()) {
       log(`html ${d.uri.path.split('/').pop()}: saved, reloading`);
@@ -499,6 +622,7 @@ class FollowPanel {
 
   onDocChange(e) {
     if (!this.panel || !this.doc || e.document.uri.toString() !== this.doc.uri.toString()) return;
+    if (isTex(e.document.uri) && this.compileMode()) return; // the PDF updates on save
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.showDoc(e.document), isTex(e.document.uri) ? 300 : 150);
   }
@@ -526,6 +650,22 @@ function activate(ctx) {
     }),
     vscode.window.tabGroups.onDidChangeTabGroups(() => follow.checkTabs()),
     vscode.commands.registerCommand('paperMd.openFollowPanel', () => follow.open(activeMd(), true)),
+    vscode.commands.registerCommand('paperMd.recompileTex', async () => {
+      const ed = vscode.window.activeTextEditor;
+      let root = follow.compileRoot;
+      if (ed && isTex(ed.document.uri)) {
+        const roots = await follow.findTexRoots(ed.document.uri, ed.document.getText());
+        root = roots.length ? ed.document.uri.with({ path: roots[0] }) : ed.document.uri;
+      }
+      if (!root) { vscode.window.showInformationMessage('Paper MD: open a .tex file first.'); return; }
+      if (follow.compileRoot && follow.compileRoot.toString() !== root.toString()) follow.compileRoot = root;
+      follow.compileRootNow(root, true);
+    }),
+    vscode.commands.registerCommand('paperMd.openTexLog', () => {
+      const p = follow.lastLog || (follow.compileRoot && require('path').join(follow.cacheDir(follow.compileRoot), 'out', follow.compileRoot.path.split('/').pop().replace(/\.tex$/i, '.log')));
+      if (p && require('fs').existsSync(p)) vscode.window.showTextDocument(vscode.Uri.file(p), { preview: true });
+      else { log('tex log: none yet'); if (channel) channel.show(true); }
+    }),
     vscode.commands.registerCommand('paperMd.openAsText', (uri) => {
       uri = uri || (vscode.window.activeTextEditor && vscode.window.activeTextEditor.document.uri)
         || (vscode.window.tabGroups.activeTabGroup.activeTab && vscode.window.tabGroups.activeTabGroup.activeTab.input && vscode.window.tabGroups.activeTabGroup.activeTab.input.uri);

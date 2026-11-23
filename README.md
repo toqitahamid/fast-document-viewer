@@ -72,9 +72,11 @@ What it converts:
 - Macros: `\newcommand`, `\renewcommand`, `\def`, `\DeclareMathOperator`, `\newenvironment`, and `\newif` conditionals.
 - Files: `\input`, `\include` and `\subfile`, read relative to the main file (cycles and depth above 10 are stopped).
 - Math with KaTeX: inline, display, `equation`, `align`, `gather`, `multline`, `eqnarray`. Numbered equations get a right-hand number. A formula that KaTeX rejects appears as gray code.
-- Figures and tables: numbered captions, sub-figures, `tabular` (with `\multicolumn`, booktabs rules and cell colors), PNG, JPEG, GIF and SVG images. A PDF or EPS figure shows its PNG or JPEG twin when one sits next to it, else a gray box with the file name.
+- Figures and tables: numbered captions, sub-figures, `tabular` (with `\multicolumn`, booktabs rules and cell colors), PNG, JPEG, GIF and SVG images. A PDF figure is drawn in the page with the bundled pdf.js (page 1, sharp, cached per file); an EPS figure, or a PDF that fails to load, shows a gray box with the file name.
 - References: `\ref`, `\eqref`, `\cref` and `\autoref` are resolved from the labels (and from a compiled `.aux` file for other documents). Citations are numbered, and the list comes from the `.bbl` file next to the main file, or from the `.bib` file, or from the cited keys.
 - Algorithms appear as pseudo-code text. Unknown commands keep their argument text. Unknown environments show their content.
+
+A section file (for example `sec/1_intro.tex`) is shown with the context of its root document: macros, `\graphicspath`, section, figure and equation numbers, labels, and the `.bbl`, with paths relative to the root folder. The root comes from a `% !TEX root = ../main.tex` comment, or else from a `.tex` file with `\documentclass` in the same folder or up to two parent folders that inputs this file (`main.tex` is preferred). Only the opened file's text is shown, under a gray "Part of main.tex" line. A file with its own `\documentclass` is its own root.
 
 Use **Edit as text** to read the source. Each re-render reads the included files again (an open editor tab counts as the latest text).
 

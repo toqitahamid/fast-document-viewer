@@ -248,6 +248,89 @@
     }
   }
 
+  // ---- PDF figures in LaTeX previews (.tex-pdffig). Separate from the PDF viewer: own queue, own documents. ----
+  const figCache = new Map(); // url -> { src (blob URL), pxW, ratio, cssW }
+  const figQueue = [];
+  let figBusy = false;
+  let figIo = null;
+
+  function figShow(el, c) {
+    const img = document.createElement('img');
+    img.alt = '';
+    img.style.aspectRatio = String(c.ratio);
+    img.src = c.src;
+    el.textContent = '';
+    el.appendChild(img);
+    el.classList.add('done');
+    if (!el.dataset.w) el.style.width = c.cssW + 'px';
+  }
+
+  async function renderFig(el) {
+    const url = el.dataset.src;
+    const hint = !!el.dataset.w;
+    const container = content.clientWidth || 800;
+    const target = hint && el.clientWidth > 20 ? el.clientWidth : 0; // 0: natural width
+    const dpr = window.devicePixelRatio || 1;
+    let c = figCache.get(url);
+    if (c && (!target || c.pxW >= target * dpr * 0.9)) { figShow(el, c); return; }
+    let doc = null;
+    try {
+      const lib = await loadLib();
+      try { doc = await lib.getDocument({ url, isEvalSupported: false }).promise; }
+      catch (e1) {
+        const buf = await (await fetch(url)).arrayBuffer();
+        doc = await lib.getDocument({ data: new Uint8Array(buf), isEvalSupported: false }).promise;
+      }
+      const page = await doc.getPage(1);
+      const base = page.getViewport({ scale: 1 });
+      const cssW = Math.max(40, Math.min(target || base.width * 4 / 3, container));
+      let d = dpr;
+      if (cssW * (base.height / base.width) * cssW * d * d > 16e6) d = Math.sqrt(16e6 / (cssW * cssW * base.height / base.width));
+      const vp = page.getViewport({ scale: (cssW * d) / base.width });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(vp.width);
+      canvas.height = Math.floor(vp.height);
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp, background: 'rgb(255,255,255)' }).promise;
+      const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
+      if (!blob) throw new Error('could not encode the figure');
+      if (c && c.src) URL.revokeObjectURL(c.src);
+      c = { src: URL.createObjectURL(blob), pxW: canvas.width, ratio: canvas.width / canvas.height, cssW: Math.round(cssW) };
+      figCache.set(url, c);
+      figShow(el, c);
+    } catch (e) {
+      el.classList.add('done');
+      vscode.postMessage({ type: 'pdfError', message: 'figure ' + url.split('/').pop() + ': ' + (e && e.message) });
+    } finally {
+      if (doc) { try { doc.destroy(); } catch (e2) { /* ignore */ } }
+    }
+  }
+
+  async function figPump() {
+    if (figBusy) return;
+    figBusy = true;
+    try {
+      while (figQueue.length) {
+        const el = figQueue.shift();
+        if (el.isConnected && !el.classList.contains('done')) await renderFig(el);
+      }
+    } finally { figBusy = false; }
+  }
+
+  function processPdfFigs() {
+    const els = content.querySelectorAll('.tex-pdffig:not(.done)');
+    if (figIo) { figIo.disconnect(); figIo = null; }
+    figQueue.length = 0;
+    if (!els.length) return;
+    figIo = new IntersectionObserver((entries) => {
+      for (const en of entries) if (en.isIntersecting) { figIo.unobserve(en.target); figQueue.push(en.target); }
+      figPump();
+    }, { rootMargin: '300px 0px' });
+    for (const el of els) {
+      const c = figCache.get(el.dataset.src);
+      if (c) figShow(el, c); else figIo.observe(el);
+    }
+  }
+
   document.getElementById('pdf-out').addEventListener('click', () => setZoom(pdf ? pdf.zoom / 1.2 : 1));
   document.getElementById('pdf-in').addEventListener('click', () => setZoom(pdf ? pdf.zoom * 1.2 : 1));
   document.getElementById('pdf-fit').addEventListener('click', () => setZoom(pdf ? fitZoom() : 1));
@@ -310,6 +393,7 @@
     content.innerHTML = m.html;
     currentKey = key;
     window.scrollTo(0, y);
+    processPdfFigs();
     if (m.sent) requestAnimationFrame(() => vscode.postMessage({ type: 'rendered', sent: m.sent, at: Date.now() }));
   });
 

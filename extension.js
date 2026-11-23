@@ -2,6 +2,7 @@
 const vscode = require('vscode');
 const { createRenderer } = require('./src/render');
 const { texToHtml } = require('./src/tex');
+const { findRoots } = require('./src/texroot');
 
 const VIEW_TYPE = 'paperMd.viewer';
 const FOLLOW_TYPE = 'paperMd.follow';
@@ -190,6 +191,7 @@ class FollowPanel {
     this.pdfBusy = new Set(); // PDF keys being loaded (re-entry guard)
     this.lastPdf = { key: '', at: 0 }; // duplicate guard for tab events
     this.texSeq = 0; // bumps on every LaTeX render; older results are dropped
+    this.rootCache = new Map(); // tex uri -> candidate root paths
     this.texCache = new Map(); // uri -> { text, at } for \input files read from disk
   }
 
@@ -304,6 +306,20 @@ class FollowPanel {
     return text;
   }
 
+  // Root documents of a section file (see src/texroot.js); cached per file until a .tex file is saved.
+  async findTexRoots(uri, text) {
+    const key = uri.toString();
+    if (this.rootCache.has(key)) return this.rootCache.get(key);
+    const io = {
+      readText: (p) => this.readTexInput(uri.with({ path: p })),
+      listDir: async (p) => (await vscode.workspace.fs.readDirectory(uri.with({ path: p }))).map((e) => e[0]),
+    };
+    let roots = [];
+    try { roots = await findRoots(uri.path, text, io); } catch (e) { roots = []; }
+    this.rootCache.set(key, roots);
+    return roots;
+  }
+
   // Render a .tex file (async because of \input) and post it to the panel.
   async showTex(document) {
     if (!this.panel) return;
@@ -317,14 +333,22 @@ class FollowPanel {
     const seq = ++this.texSeq;
     const t0 = Date.now();
     const wv = this.panel.webview;
-    const dir = dirOf(uri);
-    const rel = (p) => (p.startsWith('/') ? uri.with({ path: p }) : vscode.Uri.joinPath(dir, p));
     const listings = new Map(); // folder -> Set of names, one directory read per folder
     const text = document.getText();
-    let result;
-    try {
-      result = await texToHtml(text, {
-        baseName: name.replace(/\.tex$/i, ''),
+    // A section file is shown with the context of its root document (macros, numbers, paths).
+    const roots = await this.findTexRoots(uri, text);
+    const build = async (rootPath, preambleOnly) => {
+      const rootUri = rootPath ? uri.with({ path: rootPath }) : uri;
+      const dir = dirOf(rootUri);
+      const rel = (p) => (p.startsWith('/') ? uri.with({ path: p }) : vscode.Uri.joinPath(dir, p));
+      this.ensureRoot(rootUri);
+      const rootText = rootPath ? await this.readTexInput(rootUri) : text;
+      if (typeof rootText !== 'string') return null;
+      const rootName = rootUri.path.split('/').pop();
+      return texToHtml(rootText, {
+        baseName: rootName.replace(/\.tex$/i, ''),
+        rootName: rootPath ? rootName : undefined,
+        part: rootPath ? { rel: require('path').posix.relative(dir.path, uri.path), text, preambleOnly: !!preambleOnly } : undefined,
         readFile: (p) => this.readTexInput(rel(p)),
         exists: async (p) => {
           const full = rel(p);
@@ -341,9 +365,19 @@ class FollowPanel {
           try { const u = rel(p); this.ensureRoot(u); return wv.asWebviewUri(u).toString(); } catch (e) { return null; }
         },
       });
+    };
+    let result = null;
+    try {
+      if (!roots.length) result = await build(null);
+      else {
+        for (const r of roots) { const x = await build(r, false); if (x && x.stats.partFound) { result = x; break; } }
+        if (!result) result = await build(roots[0], true) || await build(null);
+        else log(`tex ${name}: part of ${result.stats.rootName}`);
+      }
     } catch (e) {
       result = { html: '<pre>Render error: ' + esc(String(e && e.message)) + '</pre>', stats: { inputs: 0 } };
     }
+    if (!result) result = { html: '<pre>Render error</pre>', stats: { inputs: 0 } };
     if (!this.panel || seq !== this.texSeq || !this.current || this.current.kind !== 'tex' || this.current.uri.toString() !== key) return; // stale
     this.lastRenderMs = Date.now() - t0;
     wv.postMessage({ type: 'render', key, html: result.html, sent: Date.now() });
@@ -412,6 +446,7 @@ class FollowPanel {
   }
 
   onDocSave(d) {
+    if (isTex(d.uri)) { this.rootCache.clear(); this.texCache.clear(); }
     const h = this.htmlPanel;
     if (h.panel && h.uri && h.uri.toString() === d.uri.toString()) {
       log(`html ${d.uri.path.split('/').pop()}: saved, reloading`);

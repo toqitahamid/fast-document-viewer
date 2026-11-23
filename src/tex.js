@@ -337,6 +337,9 @@ async function flatten(text, st, depth) {
   return parts.join('');
 }
 
+const normTex = (p) => require('path').posix.normalize(String(p).replace(/^\.\//, '')).replace(/\.tex$/i, '');
+const sameTex = (a, b) => normTex(a) === normTex(b);
+
 async function loadInput(p, st, depth, isSubfile) {
   const note = (msg) => '\\@texnote{' + msg + '}';
   if (depth >= st.maxDepth) return note('input depth limit: ' + p);
@@ -352,6 +355,10 @@ async function loadInput(p, st, depth, isSubfile) {
   if (typeof txt !== 'string') return note('missing file: ' + p);
   st.inputCount++;
   txt = stripComments(extractVerbatim(txt, st));
+  if (st.part && !st.part.used && sameTex(norm, st.part.rel)) { // the opened section file: its live text, marked
+    st.part.used = true;
+    txt = '\\@partbegin ' + stripComments(extractVerbatim(st.part.text, st)) + '\\@partend ';
+  }
   if (isSubfile) {
     const b = txt.indexOf('\\begin{document}');
     if (b >= 0) { const e = txt.lastIndexOf('\\end{document}'); txt = txt.slice(b + 16, e > b ? e : undefined); }
@@ -874,6 +881,12 @@ class Conv {
       try { url = this.st.resolveImage ? this.st.resolveImage(info.rel) : null; } catch (e) { url = null; }
       if (url) return '<img class="tex-img" src="' + escAttr(url) + '" alt="' + escAttr(name) + '" style="' + style + '">';
     }
+    const gfx = '<span class="tex-gfx">' + esc(info.rel.split('/').pop()) + '</span>';
+    if (/^pdf$/i.test(info.ext)) { // drawn in the page by pdf.js (media/main.js); the gray box is the fallback
+      let url = null;
+      try { url = this.st.resolveImage ? this.st.resolveImage(info.rel) : null; } catch (e) { url = null; }
+      if (url) return '<span class="tex-pdffig" data-src="' + escAttr(url) + '" data-w="' + (w || '') + '"' + (style ? ' style="' + style + '"' : '') + '>' + gfx + '</span>';
+    }
     return '<span class="tex-gfx" style="' + style + '">' + esc(info.rel.split('/').pop()) + '</span>';
   }
 
@@ -1129,11 +1142,14 @@ Object.assign(H, {
   footnote: (r) => {
     r.opt(); const t = r.arg(); const c = r.c;
     const n = ++c.counters.footnote;
-    c.footnotes.push(r.inl(t));
+    const fh = r.inl(t);
+    if (!c.quiet) c.footnotes.push({ n, html: fh });
     r.text('<sup class="tex-fnref"><a id="fnref-' + n + '" href="#fn-' + n + '">' + n + '</a></sup>');
   },
   footnotetext: (r) => { r.opt(); r.arg(); },
   title: (r) => { r.opt(); r.c.title = r.arg(); }, author: (r) => { r.opt(); r.c.author = r.arg(); }, date: (r) => { r.c.date = r.arg(); },
+  '@partbegin': (r) => { r.block('\u0003B\u0003'); r.c.quiet = false; },
+  '@partend': (r) => { r.block('\u0003E\u0003'); r.c.quiet = true; },
   maketitle: (r) => { const h = r.c.titleBlock(); if (h) r.block(h); },
   maketitlesupplementary: (r) => { const h = r.c.titleBlock(); if (h) r.block(h); },
   appendix: (r) => { r.c.appendix = true; r.c.sec = [0, 0, 0]; },
@@ -1364,7 +1380,7 @@ function newState(opts) {
   const st = {
     readFile: opts.readFile || (async () => null), exists: opts.exists || null, resolveImage: opts.resolveImage || null,
     baseName: opts.baseName || 'main', maxDepth: opts.maxDepth || 10,
-    verb: [], cond: [], flags: new Map(), stack: [], inputCount: 0,
+    part: opts.part ? { rel: opts.part.rel, text: opts.part.text, used: false } : null, verb: [], cond: [], flags: new Map(), stack: [], inputCount: 0,
     macros: new Map(), envs: new Map(), colors: new Map(), theorems: new Map(), graphicsPath: [],
     crefLow: {}, crefCap: {}, numPrefix: {}, eqWithin: false, budget: 60000, katexMacros: {}, text: '', builtin: null,
   };
@@ -1393,11 +1409,6 @@ async function resolveImages(conv, text) {
     const exts = known ? [''] : GFX_EXTS.map((e) => '.' + e);
     const prefixes = p.startsWith('/') ? [''] : ['', ...st.graphicsPath];
     const cands = [];
-    // A PDF or EPS figure is shown as its PNG or JPEG twin when one sits next to it.
-    if (known && /^(pdf|eps)$/i.test(hasExt[1])) {
-      const stem = p.replace(/\.[A-Za-z]+$/, '');
-      for (const pre of prefixes) for (const e of ['.png', '.jpg', '.jpeg']) cands.push(join(pre, stem) + e);
-    }
     for (const pre of prefixes) for (const e of exts) cands.push(join(pre, p) + e);
     let found = null;
     if (st.exists) {
@@ -1417,7 +1428,13 @@ async function texToHtml(text, opts) {
   try {
     const st = newState(opts);
     conv = new Conv(st);
-    let t = stripComments(extractVerbatim(String(text), st));
+    let src = String(text);
+    if (st.part && opts.part.preambleOnly) {
+      const bd = src.indexOf('\\begin{document}');
+      src = (bd >= 0 ? src.slice(0, bd) : src) + '\\begin{document}\\@partbegin ' + st.part.text + '\\@partend \\end{document}';
+      st.part.used = true;
+    }
+    let t = stripComments(extractVerbatim(src, st));
     t = await flatten(t, st, 0);
     for (let pass = 0; pass < 4; pass++) {
       st.cond = [];
@@ -1457,17 +1474,24 @@ async function texToHtml(text, opts) {
       body = t.slice(b + 16, e > b ? e : undefined);
     }
     if (pre) { conv.quiet = true; conv.run(pre, false); conv.quiet = false; conv.last = { num: '', id: null, type: 'section' }; }
+    if (st.part) conv.quiet = true; // only the opened file counts
     if (conv.bblItems) conv.bibItems = conv.bblItems.map((it) => ({ key: it.key, html: conv.run(it.body.replace(/\\newblock/g, ' '), true) }));
     let out = conv.run(body, false);
-    if (!conv.titleDone && conv.title != null && !/\\maketitle/.test(t)) out = conv.titleBlock() + out;
+    if (!st.part && !conv.titleDone && conv.title != null && !/\\maketitle/.test(t)) out = conv.titleBlock() + out;
     // .bib fallback for the reference list
     if (conv.bibWanted && !conv.bibItems && conv.bibNames.length) {
       for (const nm of conv.bibNames) {
         try { const x = await st.readFile(/\.bib$/i.test(nm) ? nm : nm + '.bib'); if (typeof x === 'string') for (const [k, v] of parseBibFile(x)) conv.bibFiles.set(k, v); } catch (e) { /* ignore */ }
       }
     }
-    let html = resolveRefs(out, conv);
-    const cites = resolveCites(html, conv); html = cites.html;
+    const cites = resolveCites(out, conv); let html = cites.html;
+    if (st.part) {
+      const ib = html.indexOf('\u0003B\u0003'); const ie = html.indexOf('\u0003E\u0003');
+      conv.stats.partFound = ib >= 0 && ie > ib;
+      if (conv.stats.partFound) html = html.slice(ib + 3, ie);
+      if (opts.rootName) html = '<div class="tex-partof">Part of ' + esc(opts.rootName) + '</div>' + html;
+    }
+    html = resolveRefs(html, conv);
     html = html.replace(/\u0001B\u0001/g, (() => {
       let done = false;
       return () => {
@@ -1481,11 +1505,11 @@ async function texToHtml(text, opts) {
     })());
     html = html.replace(/\u0001B\u0001/g, '');
     if (conv.footnotes.length) {
-      html += '<section class="tex-footnotes"><hr><ol>' + conv.footnotes.map((f, i) => '<li id="fn-' + (i + 1) + '">' + f + ' <a class="tex-fnback" href="#fnref-' + (i + 1) + '">↩</a></li>').join('') + '</ol></section>';
+      html += '<section class="tex-footnotes"><hr><ol>' + conv.footnotes.map((f) => '<li id="fn-' + f.n + '">' + f.html + ' <a class="tex-fnback" href="#fnref-' + f.n + '">↩</a></li>').join('') + '</ol></section>';
     }
-    html = html.replace(/[\u0000-\u0002]/g, '');
+    html = html.replace(/[\u0000-\u0003]/g, '');
     const stats = conv.stats;
-    stats.ms = Date.now() - t0;
+    stats.ms = Date.now() - t0; stats.rootName = opts.rootName;
     stats.unknownTop = [...stats.unknown.entries()].sort((a, b2) => b2[1] - a[1]).slice(0, 15);
     stats.unknownEnvTop = [...stats.unknownEnvs.entries()].sort((a, b2) => b2[1] - a[1]).slice(0, 10);
     if (!html.replace(/<[^>]*>/g, '').trim()) html = '<p class="tex-note">(This LaTeX file has no visible text.)</p>' + html;

@@ -104,3 +104,6 @@ html.pdf-mode, html.pdf-mode body { background: #525659; }
 #content .tex-refs ol { list-style: none; padding-left: 0; }
 #content .tex-refs li { margin: 0.25em 0; padding-left: 2.2em; text-indent: -2.2em; }
 #content .tex-bibno { display: inline-block; min-width: 2.2em; text-indent: 0; }
+#content .tex-pdffig { display: inline-block; max-width: 100%; vertical-align: middle; }
+#content .tex-pdffig img { display: block; width: 100%; height: auto; background: #fff; }
+#content .tex-partof { font: 12px sans-serif; color: #888; margin: 0 0 1em; text-align: left; }

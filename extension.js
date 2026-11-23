@@ -1,12 +1,14 @@
 'use strict';
 const vscode = require('vscode');
 const { createRenderer } = require('./src/render');
+const { texToHtml } = require('./src/tex');
 
 const VIEW_TYPE = 'paperMd.viewer';
 const FOLLOW_TYPE = 'paperMd.follow';
 const isMd = (uri) => /\.(md|markdown)$/i.test(uri.path);
 const isPdf = (uri) => /\.pdf$/i.test(uri.path);
 const isHtml = (uri) => /\.html?$/i.test(uri.path);
+const isTex = (uri) => /\.tex$/i.test(uri.path);
 
 function nonce() {
   let s = '';
@@ -180,13 +182,15 @@ class FollowPanel {
     this.ctx = ctx;
     this.panel = undefined;
     this.doc = undefined;
-    this.current = undefined; // { kind: 'md' | 'pdf' | 'html', uri } of the file now shown
+    this.current = undefined; // { kind: 'md' | 'tex' | 'pdf' | 'html', uri } of the file now shown
     this.timer = undefined;
     this.userClosed = false;
     this.asText = new Set(); // documents the user chose to read as text
     this.htmlPanel = new HtmlPanel(ctx);
     this.pdfBusy = new Set(); // PDF keys being loaded (re-entry guard)
     this.lastPdf = { key: '', at: 0 }; // duplicate guard for tab events
+    this.texSeq = 0; // bumps on every LaTeX render; older results are dropped
+    this.texCache = new Map(); // uri -> { text, at } for \input files read from disk
   }
 
   replaceMode() {
@@ -196,7 +200,7 @@ class FollowPanel {
   open(document, reveal, column, extraUri) {
     if (this.panel) {
       if (reveal) this.panel.reveal(column, !this.replaceMode());
-      if (document) this.show(document);
+      if (document) this.showDoc(document);
       return;
     }
     this.userClosed = false;
@@ -208,11 +212,13 @@ class FollowPanel {
         localResourceRoots: rootsFor(this.ctx, extraUri || (document && document.uri)) });
     this.panel = panel;
     this.doc = document;
-    this.current = document ? { kind: 'md', uri: document.uri } : undefined;
+    const tex = !!document && isTex(document.uri);
+    this.current = document ? { kind: tex ? 'tex' : 'md', uri: document.uri } : undefined;
     const wv = panel.webview;
-    const body = document ? renderDoc(wv, document) : '<p>Open a Markdown file to show it here.</p>';
+    const body = !document ? '<p>Open a Markdown file to show it here.</p>' : tex ? '<p class="tex-note">Rendering LaTeX...</p>' : renderDoc(wv, document);
     if (document) panel.title = 'Paper: ' + document.uri.path.split('/').pop();
     wv.html = shell(this.ctx, wv, body, { editButton: replace, key: document ? document.uri.toString() : '' });
+    if (tex) this.showTex(document);
 
     wv.onDidReceiveMessage((m) => {
       if (m.type === 'timing' && m.t) {
@@ -274,6 +280,74 @@ class FollowPanel {
     const html = renderDoc(wv, document);
     this.lastRenderMs = Date.now() - t;
     wv.postMessage({ type: 'render', key: document.uri.toString(), html, sent: Date.now() });
+  }
+
+  showDoc(document) {
+    if (isTex(document.uri)) this.showTex(document); else this.show(document);
+  }
+
+  texMode() {
+    const c = vscode.workspace.getConfiguration('paperMd');
+    return !!c.get('tex.enabled') && !!c.get('followPanel.replaceTextTab');
+  }
+
+  // Text of a file next to the .tex file: an open editor wins (live text), else disk, kept 2 s.
+  async readTexInput(uri) {
+    const key = uri.toString();
+    const open = vscode.workspace.textDocuments && vscode.workspace.textDocuments.find((d) => d.uri.toString() === key);
+    if (open) return open.getText();
+    const hit = this.texCache.get(key);
+    if (hit && Date.now() - hit.at < 2000) return hit.text;
+    let text = null;
+    try { text = Buffer.from(await vscode.workspace.fs.readFile(uri)).toString('utf8'); } catch (e) { text = null; }
+    this.texCache.set(key, { text, at: Date.now() });
+    return text;
+  }
+
+  // Render a .tex file (async because of \input) and post it to the panel.
+  async showTex(document) {
+    if (!this.panel) return;
+    const uri = document.uri;
+    const key = uri.toString();
+    const name = uri.path.split('/').pop();
+    this.ensureRoot(uri);
+    this.doc = document;
+    this.current = { kind: 'tex', uri };
+    this.panel.title = 'Paper: ' + name;
+    const seq = ++this.texSeq;
+    const t0 = Date.now();
+    const wv = this.panel.webview;
+    const dir = dirOf(uri);
+    const rel = (p) => (p.startsWith('/') ? uri.with({ path: p }) : vscode.Uri.joinPath(dir, p));
+    const listings = new Map(); // folder -> Set of names, one directory read per folder
+    const text = document.getText();
+    let result;
+    try {
+      result = await texToHtml(text, {
+        baseName: name.replace(/\.tex$/i, ''),
+        readFile: (p) => this.readTexInput(rel(p)),
+        exists: async (p) => {
+          const full = rel(p);
+          const folder = vscode.Uri.joinPath(full, '..');
+          const fk = folder.toString();
+          if (!listings.has(fk)) {
+            let names = new Set();
+            try { names = new Set((await vscode.workspace.fs.readDirectory(folder)).map((e) => e[0])); } catch (e) { /* missing folder */ }
+            listings.set(fk, names);
+          }
+          return listings.get(fk).has(full.path.split('/').pop());
+        },
+        resolveImage: (p) => {
+          try { const u = rel(p); this.ensureRoot(u); return wv.asWebviewUri(u).toString(); } catch (e) { return null; }
+        },
+      });
+    } catch (e) {
+      result = { html: '<pre>Render error: ' + esc(String(e && e.message)) + '</pre>', stats: { inputs: 0 } };
+    }
+    if (!this.panel || seq !== this.texSeq || !this.current || this.current.kind !== 'tex' || this.current.uri.toString() !== key) return; // stale
+    this.lastRenderMs = Date.now() - t0;
+    wv.postMessage({ type: 'render', key, html: result.html, sent: Date.now() });
+    log(`tex ${name}: ${Math.round(text.length / 1024)} KB, ${result.stats.inputs || 0} inputs, render ${this.lastRenderMs} ms`);
   }
 
   pdfMode() {
@@ -358,7 +432,8 @@ class FollowPanel {
   onEditorChange(editor) {
     if (!editor) return;
     const html = isHtml(editor.document.uri);
-    if (html ? !this.htmlMode() : !isMd(editor.document.uri)) return;
+    const tex = isTex(editor.document.uri);
+    if (html ? !this.htmlMode() : tex ? !this.texMode() : !isMd(editor.document.uri)) return;
     const doc = editor.document;
     const name = doc.uri.path.split('/').pop();
     if (this.asText.has(doc.uri.toString())) { log(`editor change ${name}: kept as text (Edit as text)`); return; }
@@ -372,7 +447,7 @@ class FollowPanel {
     }
     if (this.panel) {
       log(`editor change ${name}: updating panel` + (replace ? ' in place' : ''));
-      if (!this.doc || this.doc.uri.toString() !== doc.uri.toString()) this.show(doc);
+      if (!this.doc || this.doc.uri.toString() !== doc.uri.toString()) this.showDoc(doc);
       if (replace) this.panel.reveal(editor.viewColumn, false);
     } else if (!this.userClosed && vscode.workspace.getConfiguration('paperMd').get('followPanel.autoOpen')) {
       log(`editor change ${name}: opening panel` + (replace ? ' in place' : ' beside'));
@@ -390,7 +465,7 @@ class FollowPanel {
   onDocChange(e) {
     if (!this.panel || !this.doc || e.document.uri.toString() !== this.doc.uri.toString()) return;
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.show(e.document), 150);
+    this.timer = setTimeout(() => this.showDoc(e.document), isTex(e.document.uri) ? 300 : 150);
   }
 }
 
@@ -399,7 +474,7 @@ function activate(ctx) {
   const follow = new FollowPanel(ctx);
   const activeMd = () => {
     const ed = vscode.window.activeTextEditor;
-    return ed && isMd(ed.document.uri) ? ed.document : undefined;
+    return ed && (isMd(ed.document.uri) || (isTex(ed.document.uri) && follow.texMode())) ? ed.document : undefined;
   };
   ctx.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((d) => {

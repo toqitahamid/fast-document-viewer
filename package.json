@@ -1,6 +1,6 @@
 {
   "name": "paper-md-viewer",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Fast read-only Markdown viewer with a printed-paper look and KaTeX math.",
   "main": "./extension.js",
   "license": "MIT",
@@ -38,6 +38,8 @@
     "onCustomEditor:paperMd.viewer",
     "onLanguage:markdown",
     "onLanguage:html",
+    "onLanguage:latex",
+    "onLanguage:tex",
     "onCommand:paperMd.openFollowPanel",
     "onStartupFinished"
   ],
@@ -94,6 +96,11 @@
           "type": "boolean",
           "default": false,
           "description": "Show the follow panel in place of the Markdown text tab (one tab, no side-by-side view). The text tab is closed; use the \"Edit as text\" button to read the file as text."
+        },
+        "paperMd.tex.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show .tex files as a rendered approximation of the compiled paper in the Paper MD follow panel instead of as text. Needs paperMd.followPanel.replaceTextTab. No TeX engine is used: \\input files, math, figures, tables and references are converted to HTML. Use the \"Edit as text\" button to read the source."
         }
       }
     }

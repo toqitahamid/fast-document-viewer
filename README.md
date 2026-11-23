@@ -59,6 +59,25 @@ PDFs open at 100% (actual size). The toolbar has zoom out, zoom in, Fit (fit wid
 
 The page's HTML becomes the panel document, with a `<base>` tag added so relative CSS, scripts and images load from the file's folder. Its scripts run. The panel has no message handler, so page scripts cannot drive the extension. Open only HTML files you trust: their scripts can use the network. The page reloads when you save the file. Run **Paper MD: Open as Text** to read the source.
 
+## LaTeX
+
+`.tex` files open as a rendered approximation of the compiled paper, in the same reused follow panel. No TeX engine is used, so the result is a preview, not the PDF. Page breaks, float positions, fonts and the exact reference style differ.
+
+1. Set `"paperMd.followPanel.replaceTextTab": true` and `"paperMd.followPanel.autoOpen": true`.
+2. Set `"paperMd.tex.enabled": true`.
+
+What it converts:
+
+- Structure: title block, abstract, numbered sections, lists, quotes, footnotes, theorem environments, appendices.
+- Macros: `\newcommand`, `\renewcommand`, `\def`, `\DeclareMathOperator`, `\newenvironment`, and `\newif` conditionals.
+- Files: `\input`, `\include` and `\subfile`, read relative to the main file (cycles and depth above 10 are stopped).
+- Math with KaTeX: inline, display, `equation`, `align`, `gather`, `multline`, `eqnarray`. Numbered equations get a right-hand number. A formula that KaTeX rejects appears as gray code.
+- Figures and tables: numbered captions, sub-figures, `tabular` (with `\multicolumn`, booktabs rules and cell colors), PNG, JPEG, GIF and SVG images. A PDF or EPS figure shows its PNG or JPEG twin when one sits next to it, else a gray box with the file name.
+- References: `\ref`, `\eqref`, `\cref` and `\autoref` are resolved from the labels (and from a compiled `.aux` file for other documents). Citations are numbered, and the list comes from the `.bbl` file next to the main file, or from the `.bib` file, or from the cited keys.
+- Algorithms appear as pseudo-code text. Unknown commands keep their argument text. Unknown environments show their content.
+
+Use **Edit as text** to read the source. Each re-render reads the included files again (an open editor tab counts as the latest text).
+
 ## Settings
 
 - `paperMd.customCss` (string): CSS added after the built-in paper style.
@@ -66,6 +85,7 @@ The page's HTML becomes the panel document, with a `<base>` tag added so relativ
 - `paperMd.followPanel.replaceTextTab` (boolean, default `false`): show the follow panel in place of the Markdown text tab.
 - `paperMd.pdf.enabled` (boolean, default `false`): show `.pdf` files in the follow panel. Needs `replaceTextTab`.
 - `paperMd.html.enabled` (boolean, default `false`): show `.html` and `.htm` files in the follow panel. Needs `replaceTextTab`.
+- `paperMd.tex.enabled` (boolean, default `false`): show `.tex` files as a rendered preview in the follow panel. Needs `replaceTextTab`.
 
 Open-time measurements are written to **View > Output > Paper MD**.
 

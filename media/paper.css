@@ -43,3 +43,64 @@ html.pdf-mode, html.pdf-mode body { background: #525659; }
 #pdfbar button { font: 12px sans-serif; background: #666; color: #fff; border: 0; border-radius: 3px; padding: 2px 8px; cursor: pointer; }
 #pdfbar button:hover { background: #888; }
 #pdf-page { min-width: 52px; text-align: center; }
+/* LaTeX preview (src/tex.js) */
+#content .tex-title { text-align: center; margin: 0 0 1.6em; }
+#content .tex-title h1 { text-align: center; margin: 0.4em 0 0.6em; font-size: 1.7em; }
+#content .tex-authors { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.4em 2.2em; font-size: 1.05em; }
+#content .tex-author { text-align: center; }
+#content .tex-aff, #content .tex-date { font-size: 0.85em; color: #333; text-align: center; }
+#content .tex-abstract { margin: 1.2em 2.2em; font-size: 0.92em; }
+#content .tex-abs-h { text-align: center; font-weight: bold; margin-bottom: 0.4em; }
+#content .tex-secnum { margin-right: 0.45em; }
+#content .tex-parhead { font-weight: bold; }
+#content .tex-center { text-align: center; }
+#content .tex-left { text-align: left; } #content .tex-right { text-align: right; }
+#content .tex-eq { margin: 0.9em 0; position: relative; overflow-x: auto; overflow-y: hidden; }
+#content .tex-eq .katex-display { margin: 0; }
+#content .tex-err { background: #eee; color: #555; font-size: 0.85em; white-space: pre-wrap; }
+#content .tex-fl { margin: 1.2em 0; text-align: center; font-size: 0.95em; }
+#content .tex-fl figcaption, #content .tex-cap { font-size: 0.9em; text-align: justify; margin: 0.5em 1.5em; }
+#content .tex-cap { text-align: center; margin: 0.8em 0; }
+#content .tex-capno { font-weight: bold; }
+#content .tex-fbody > p { margin: 0.4em 0; text-align: center; }
+#content .tex-fbody.tex-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+#content .tex-sub { display: inline-block; vertical-align: top; box-sizing: border-box; padding: 0 0.5%; }
+#content .tex-subcap { font-size: 0.88em; margin-top: 0.2em; }
+#content .tex-mini { display: inline-block; vertical-align: top; }
+#content .tex-parbox { display: inline-block; vertical-align: top; }
+#content .tex-img { max-width: 100%; height: auto; vertical-align: middle; }
+#content .tex-gfx { display: inline-block; box-sizing: border-box; max-width: 100%; padding: 1.4em 0.8em; background: #eee; color: #666; border: 1px dashed #aaa; font: 12px 'SFMono-Regular', Menlo, Consolas, monospace; text-align: center; }
+#content .tex-gfx.tex-block { display: block; margin: 1em 0; }
+#content .tex-tabwrap { overflow-x: auto; margin: 0.4em 0; }
+#content table.tex-tab { width: auto; margin: 0 auto; }
+#content table.tex-tab tr.rl > td { border-top: 1px solid #000; }
+#content table.tex-tab tr.rb > td { border-bottom: 1px solid #000; }
+#content table.tex-tab td.cl { border-top: 1px solid #555; }
+#content table.tex-tab td { padding: 3px 8px; }
+#content .tex-fbox { border: 1px solid #000; padding: 0 0.25em; }
+#content .tex-algo { text-align: left; font-family: 'SFMono-Regular', Menlo, Consolas, 'DejaVu Sans Mono', monospace; font-size: 0.85em; white-space: pre-wrap; line-height: 1.45; padding: 6px 10px; background: #f5f5f5; }
+#content .tex-algo-c { color: #666; }
+#content .tex-verb { font-size: 0.85em; }
+#content .tex-thm { margin: 0.9em 0; }
+#content .tex-thm > p { margin: 0.4em 0; }
+#content .tex-thm:not(.tex-proof) { font-style: italic; }
+#content .tex-thm:not(.tex-proof) b { font-style: normal; }
+#content .tex-qed { float: right; }
+#content .sc { font-variant: small-caps; }
+#content code.tt { font-size: 0.88em; }
+#content .tex-list { text-align: left; margin: 0.6em 0; }
+#content .tex-list li > p { margin: 0.2em 0; }
+#content .tex-list dt { font-weight: bold; }
+#content li.tex-lab { list-style: none; margin-left: -1.2em; }
+#content .tex-note { color: #888; font-size: 0.85em; }
+#content .tex-unres { color: #b00; }
+#content .tex-ref, #content .tex-cite { text-decoration: none; }
+#content sup.tex-fnref a { text-decoration: none; }
+#content .tex-footnotes { font-size: 0.82em; margin-top: 2em; text-align: left; }
+#content .tex-footnotes hr { width: 30%; margin-left: 0; }
+#content .tex-footnotes ol { padding-left: 1.4em; margin: 0.4em 0; }
+#content .tex-fnback { text-decoration: none; }
+#content .tex-refs { font-size: 0.85em; text-align: left; }
+#content .tex-refs ol { list-style: none; padding-left: 0; }
+#content .tex-refs li { margin: 0.25em 0; padding-left: 2.2em; text-indent: -2.2em; }
+#content .tex-bibno { display: inline-block; min-width: 2.2em; text-indent: 0; }

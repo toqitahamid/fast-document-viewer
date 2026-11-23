@@ -674,20 +674,24 @@ function activate(ctx) {
       if (p && require('fs').existsSync(p)) vscode.window.showTextDocument(vscode.Uri.file(p), { preview: true });
       else { log('tex log: none yet'); if (channel) channel.show(true); }
     }),
-    vscode.commands.registerCommand('paperMd.openAsText', (uri) => {
-      uri = uri || (vscode.window.activeTextEditor && vscode.window.activeTextEditor.document.uri)
-        || (vscode.window.tabGroups.activeTabGroup.activeTab && vscode.window.tabGroups.activeTabGroup.activeTab.input && vscode.window.tabGroups.activeTabGroup.activeTab.input.uri);
-      // From the HTML panel: open its page as text and keep it as text.
+    vscode.commands.registerCommand('paperMd.openAsText', (arg) => {
       const h = follow.htmlPanel;
-      if (!uri && h.panel && h.panel.active && h.uri) { uri = h.uri; follow.asText.add(uri.toString()); }
-      // From the Paper panel (title-bar Edit button): open the shown .md/.tex as text, keep it as text.
+      let uri = arg instanceof vscode.Uri ? arg : undefined;
+      let col;
+      // Panels first: activeTextEditor can be stale while a webview has focus.
       if (!uri && follow.panel && follow.panel.active && follow.current && follow.current.kind !== 'pdf') {
-        uri = follow.current.uri; follow.asText.add(uri.toString());
+        uri = follow.current.uri; col = follow.panel.viewColumn;
+      } else if (!uri && h.panel && h.panel.active && h.uri) {
+        uri = h.uri; col = h.panel.viewColumn;
       }
-      if (uri) {
-        const col = (follow.panel && follow.panel.active && follow.panel.viewColumn) || (h.panel && h.panel.active && h.panel.viewColumn) || undefined;
-        vscode.window.showTextDocument(uri, { viewColumn: col, preview: false });
+      if (!uri) {
+        const ed = vscode.window.activeTextEditor;
+        uri = ed && ed.document.uri;
       }
+      log(`openAsText: ${uri ? uri.toString() : 'no target'}`);
+      if (!uri) { vscode.window.showInformationMessage('Paper MD: no text file to edit here (a plain PDF has no text source).'); return; }
+      follow.asText.add(uri.toString());
+      vscode.window.showTextDocument(uri, { viewColumn: col, preview: false });
     }),
     // From a .md/.tex/.html text tab (title-bar preview button): back to the rendered view.
     vscode.commands.registerCommand('paperMd.showPaper', (uri) => {

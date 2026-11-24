@@ -1,5 +1,5 @@
 'use strict';
-// LaTeX to HTML approximation for the Paper MD Viewer. No TeX engine is used.
+// LaTeX to HTML approximation for Fast Document Viewer. No TeX engine is used.
 // texToHtml(text, opts) -> Promise<{ html, stats }>. It never throws.
 //   opts.readFile(rel)      async, text of a file next to the main file, or null
 //   opts.exists(rel)        async, true when the file exists (used to find images)

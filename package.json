@@ -1,7 +1,7 @@
 {
-  "name": "paper-md-viewer",
-  "version": "0.7.6",
-  "description": "Fast read-only Markdown viewer with a printed-paper look and KaTeX math.",
+  "name": "fast-document-viewer",
+  "version": "0.8.0",
+  "description": "Fast, efficient viewer for Markdown, PDF, HTML and LaTeX, built for Remote-SSH.",
   "main": "./extension.js",
   "license": "MIT",
   "dependencies": {
@@ -11,11 +11,11 @@
     "markdown-it": "^14.3.3",
     "markdown-it-task-lists": "^2.1.1"
   },
-  "displayName": "Paper MD Viewer",
+  "displayName": "Fast Document Viewer",
   "publisher": "toqitahamid",
   "repository": {
     "type": "git",
-    "url": "https://github.com/toqitahamid/paper-md-viewer.git"
+    "url": "https://github.com/toqitahamid/fast-document-viewer.git"
   },
   "keywords": [
     "markdown",
@@ -23,7 +23,12 @@
     "preview",
     "katex",
     "paper",
-    "remote-ssh"
+    "remote-ssh",
+    "pdf",
+    "html",
+    "latex",
+    "tex",
+    "document viewer"
   ],
   "engines": {
     "vscode": "^1.85.0"
@@ -47,7 +52,7 @@
     "customEditors": [
       {
         "viewType": "paperMd.viewer",
-        "displayName": "Paper MD Viewer",
+        "displayName": "Fast Document Viewer",
         "priority": "option",
         "selector": [
           {
@@ -86,7 +91,7 @@
       }
     ],
     "configuration": {
-      "title": "Paper MD Viewer",
+      "title": "Fast Document Viewer",
       "properties": {
         "paperMd.customCss": {
           "type": "string",

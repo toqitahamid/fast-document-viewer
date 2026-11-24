@@ -19,6 +19,12 @@ function slugify(s) {
   return s.trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s+/g, '-');
 }
 
+// Heading ids get this prefix so they can never collide with the viewer's own ids
+// (content, pdf, pdfbar, ...). In-page links to "#title" are mapped to it by main.js.
+const ID_PREFIX = 'h-';
+const headingId = (slug) => ID_PREFIX + slug;
+const LOCAL_SRC = /^(https?:|data:|vscode-|#|\/\/)/i;
+
 /**
  * createRenderer({ resolveImage }) -> render(text)
  * resolveImage(src) returns a rewritten URL string, or null to keep src.
@@ -52,21 +58,36 @@ function createRenderer(opts) {
         let base = slugify(inline.children ? inline.children.map((c) => c.content).join('') : inline.content) || 'section';
         const n = used.get(base) || 0;
         used.set(base, n + 1);
-        t.attrSet('id', n ? base + '-' + n : base);
+        t.attrSet('id', headingId(n ? base + '-' + n : base));
       } else if (t.type === 'inline' && t.children) {
         for (const c of t.children) {
           if (c.type === 'image') {
             const src = c.attrGet('src');
-            if (src && !/^(https?:|data:|vscode-|#)/i.test(src)) {
+            if (src && !LOCAL_SRC.test(src)) {
               const out = resolveImage(src);
               if (out) c.attrSet('src', out);
             }
           }
+          if (c.type === 'html_inline') c.content = rewriteImgTags(c.content);
         }
+      } else if (t.type === 'html_block') {
+        t.content = rewriteImgTags(t.content);
       }
     }
   });
+
+  // Raw <img src="..."> in HTML blocks: resolve relative sources like Markdown images.
+  const SRC_ATTR = /(\ssrc\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i;
+  function rewriteImgTags(html) {
+    if (!/<img\b/i.test(html)) return html;
+    return html.replace(/<img\b[^>]*>/gi, (tag) => tag.replace(SRC_ATTR, (whole, pre, a, b, c) => {
+      const src = md.utils.unescapeAll(a !== undefined ? a : b !== undefined ? b : c);
+      if (!src || LOCAL_SRC.test(src)) return whole;
+      const out = resolveImage(src);
+      return out ? pre + '"' + md.utils.escapeHtml(out) + '"' : whole;
+    }));
+  }
   return (text) => md.render(text);
 }
 
-module.exports = { createRenderer, slugify };
+module.exports = { createRenderer, slugify, headingId, ID_PREFIX };

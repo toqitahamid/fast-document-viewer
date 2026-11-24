@@ -7,7 +7,9 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 
-const EXTS = new Set('tex sty cls bst bib bbx cbx dbx lbx def cfg clo fd ldf png jpg jpeg gif pdf eps ps svg ttf otf ttc woff woff2 bbl ist pfb afm tfm vf map enc'.split(' '));
+const EXTS = new Set('tex sty cls bst bib bibtex bbx cbx dbx lbx def cfg clo fd ldf png jpg jpeg gif pdf eps ps svg ttf otf ttc woff woff2 bbl ist pfb afm tfm vf map enc csv tsv dat txt json tikz pgf asy mp md lua'.split(' '));
+// Build output and editor litter: not worth reporting as "skipped".
+const IGNORABLE = /(?:\.(?:aux|log|out|toc|lof|lot|fls|fdb_latexmk|synctex|gz|blg|bcf|run\.xml|nav|snm|vrb|dvi|xdv|idx|ilg|ind|glo|gls|ds_store)|^latexmkrc|~)$/i;
 const SKIP_DIRS = new Set(['.git', 'node_modules', '__pycache__', '.venv']);
 const MAX_FILE = 25 * 1024 * 1024;
 const MAX_DEPTH = 6;
@@ -38,12 +40,23 @@ async function findExternal(vscode, rootFileUri, o) {
   const ext = new Map(); // key -> { kind, path }
   const warnings = [];
   const addExt = (kind, p) => { if (!inside(p)) ext.set(kind + ':' + p, { kind, path: p }); };
-  const res = (rel) => P.resolve(R, String(rel).trim().replace(/^\{|\}$/g, ''));
+  // Resolve a reference against the root folder. Absolute paths and paths more than 4 levels above the root are refused (null).
+  const refusedSet = new Set();
+  const refuse = (s, why) => { if (!refusedSet.has(s)) { refusedSet.add(s); warnings.push('ignored ' + s + ' (' + why + ')'); } return null; };
+  const res = (rel) => {
+    const s = String(rel).trim().replace(/^\{|\}$/g, '');
+    if (!s) return null;
+    if (/^(?:[\\/]|~|[A-Za-z]:[\\/])/.test(s)) return refuse(s, 'absolute path');
+    const full = P.resolve(R, s);
+    if (P.relative(R, full).split('/').filter((x) => x === '..').length > 4) return refuse(s, 'more than 4 levels above the root folder');
+    return full;
+  };
   const seen = new Set();
   const queue = [{ p: rootFileUri.path, d: 0 }];
   const maxDepth = (o && o.maxDepth) || 4;
   const follow = (rel, exts, d) => {
     const base = res(rel);
+    if (!base) return;
     const cands = /\.[A-Za-z0-9]+$/.test(base) && exts.some((e) => base.endsWith(e)) ? [base] : exts.map((e) => base + e);
     for (const c of cands) if (!seen.has(c)) queue.push({ p: c, d: d + 1, optional: true });
   };
@@ -65,6 +78,7 @@ async function findExternal(vscode, rootFileUri, o) {
           const v = m[1].trim();
           if (!v || /\s/.test(v) || /^\d/.test(v)) continue;
           const full = res(v);
+          if (!full) continue;
           addExt('tree', P.dirname(full));
           if (d < maxDepth) follow(v, ['.tex'], d);
         }
@@ -75,38 +89,42 @@ async function findExternal(vscode, rootFileUri, o) {
     // .tex inputs
     for (const re = argRe('input|include|subfile|subfileinclude'); (m = re.exec(t));) {
       const rel = m[1].trim(); if (!rel) continue;
-      const base = res(rel); const full = /\.tex$/i.test(base) ? base : base + '.tex';
+      const base = res(rel); if (!base) continue;
+      const full = /\.tex$/i.test(base) ? base : base + '.tex';
       addExt('file', full); if (d < maxDepth) follow(rel, ['.tex'], d);
     }
     // packages and classes: local ones are followed, path-like ones may be external
     for (const re = argRe('usepackage|RequirePackage|documentclass'); (m = re.exec(t));) {
       for (const n of m[1].split(',').map((x) => x.trim()).filter(Boolean)) {
         const base = res(n);
-        if (/[\/]/.test(n)) { addExt('file', /\.(sty|cls)$/.test(base) ? base : base + (/documentclass/.test(m[0]) ? '.cls' : '.sty')); }
+        if (base && /[\/]/.test(n)) { addExt('file', /\.(sty|cls)$/.test(base) ? base : base + (/documentclass/.test(m[0]) ? '.cls' : '.sty')); }
         if (d < maxDepth) follow(n, ['.sty', '.cls'], d);
       }
     }
     // fontspec: Path=dir in any option list
-    for (const re = /\bPath\s*=\s*\{?\s*([^,\]\}\s]+)/g; (m = re.exec(t));) addExt('tree', res(m[1]));
+    for (const re = /\bPath\s*=\s*\{?\s*([^,\]\}\s]+)/g; (m = re.exec(t));) { const d0 = res(m[1]); if (d0) addExt('tree', d0); }
     // graphics
     for (const re = /\\graphicspath\s*\{((?:\s*\{[^}]*\}\s*)+)\}/g; (m = re.exec(t));) {
-      for (const g of m[1].match(/\{[^}]*\}/g) || []) addExt('tree', res(g));
+      for (const g of m[1].match(/\{[^}]*\}/g) || []) { const d0 = res(g); if (d0) addExt('tree', d0); }
     }
     for (const re = argRe('includegraphics'); (m = re.exec(t));) {
-      const base = res(m[1]);
+      const base = res(m[1]); if (!base) continue;
       addExt(/\.[A-Za-z0-9]{2,4}$/.test(base) ? 'file' : 'prefix', base);
     }
     // bibliographies and listings
     for (const re = argRe('bibliography|addbibresource|addglobalbib'); (m = re.exec(t));) {
       for (const n of m[1].split(',').map((x) => x.trim()).filter(Boolean)) {
-        const base = res(n); addExt('file', /\.bib$/.test(base) ? base : base + '.bib');
+        const base = res(n); if (!base) continue;
+        addExt('file', /\.bib$/.test(base) ? base : base + '.bib');
       }
     }
-    for (const re = argRe('lstinputlisting|inputminted|verbatiminput|VerbatimInput'); (m = re.exec(t));) addExt('file', res(m[m.length - 1]));
+    for (const re = argRe('lstinputlisting|inputminted|verbatiminput|VerbatimInput'); (m = re.exec(t));) { const f0 = res(m[m.length - 1]); if (f0) addExt('file', f0); }
     // \import{dir}{file}
     for (const re = /\\(?:sub)?(?:import|inputfrom|includefrom)\*?\s*\{([^}]*)\}\s*\{([^}]*)\}/g; (m = re.exec(t));) {
-      addExt('tree', res(m[1]));
-      const f = P.resolve(res(m[1]), m[2].trim()); addExt('file', /\.tex$/.test(f) ? f : f + '.tex');
+      const dir = res(m[1]); if (!dir) continue;
+      addExt('tree', dir);
+      const f = res(P.join(m[1].trim(), m[2].trim())); if (!f) continue;
+      addExt('file', /\.tex$/.test(f) ? f : f + '.tex');
       if (d < maxDepth) follow(P.join(m[1], m[2]), ['.tex'], d);
     }
   }
@@ -131,7 +149,8 @@ async function mirror(vscode, dirUri, cacheDir, opts) {
   const o = opts || {};
   const maxBytes = (o.maxMB || 200) * 1024 * 1024;
   const wfs = vscode.workspace.fs;
-  const FT = vscode.FileType || { File: 1, Directory: 2 };
+  const FT = vscode.FileType || { File: 1, Directory: 2, SymbolicLink: 64 };
+  const SL = FT.SymbolicLink || 64;
   const baseUri = o.baseUri || dirUri;
   const rel0 = (u) => P.relative(baseUri.path, u.path);
   const srcRoot = path.join(cacheDir, 'src');
@@ -150,11 +169,17 @@ async function mirror(vscode, dirUri, cacheDir, opts) {
   let scanned = 0;
   const extFolders = [];
   const wanted = (name) => EXTS.has(name.includes('.') ? name.split('.').pop().toLowerCase() : '');
+  // Files left out of the mirror, by reason, so a "file not found" in the log can be explained.
+  const skipped = { ext: 0, big: 0, deep: 0, dot: 0, symlink: 0, outside: 0, examples: [] };
+  const skipSeen = new Set(); // a file reached twice (scan and reference) is counted once
+  const skip = (reason, name, key) => { const k = reason + ':' + (key || name); if (skipSeen.has(k)) return; skipSeen.add(k); skipped[reason]++; if (skipped.examples.length < 10) skipped.examples.push(name); };
   const statInto = async (files) => {
     await pool(files, CONCURRENCY, async (f) => {
+      if (P.isAbsolute(f.rel) || /^\.\.(?:\/|$)/.test(f.rel)) { skip('outside', f.rel); return; }
       try {
         const st = await wfs.stat(f.uri);
-        if (st.size > MAX_FILE) return;
+        if ((st.type & SL) !== 0) { skip('symlink', f.rel); return; }
+        if (st.size > MAX_FILE) { skip('big', f.rel); return; }
         f.size = st.size; f.mtime = st.mtime; found.set(f.rel, f);
       } catch (e) { /* vanished */ }
     });
@@ -169,10 +194,17 @@ async function mirror(vscode, dirUri, cacheDir, opts) {
         try { ents = await wfs.readDirectory(d.uri); } catch (e) { return; }
         for (const [name, type] of ents) {
           scanned++;
-          if (name.startsWith('.')) continue;
+          const isDir = (type & FT.Directory) !== 0;
+          if (name.startsWith('.')) { if (!isDir && !IGNORABLE.test(name)) skip('dot', name); continue; }
+          if ((type & SL) !== 0) { skip('symlink', name); continue; } // never follow symlinks
           const u = vscode.Uri.joinPath(d.uri, name);
-          if ((type & FT.Directory) !== 0) { if (!SKIP_DIRS.has(name) && depth < MAX_DEPTH) next.push({ uri: u }); continue; }
+          if (isDir) {
+            if (SKIP_DIRS.has(name)) continue;
+            if (depth < MAX_DEPTH) next.push({ uri: u }); else skip('deep', name + '/');
+            continue;
+          }
           if (wanted(name)) files.push({ rel: rel0(u), uri: u });
+          else if (!IGNORABLE.test(name)) skip('ext', name, rel0(u));
         }
       });
       await statInto(files);
@@ -181,8 +213,12 @@ async function mirror(vscode, dirUri, cacheDir, opts) {
   };
   await scanTree(dirUri);
   for (const tg of o.extra || []) {
-    if (tg.kind === 'tree') { extFolders.push(rel0(tg.uri) || '.'); await scanTree(tg.uri); }
-    else if (tg.kind === 'file') {
+    if (tg.kind === 'tree') {
+      try { if (((await wfs.stat(tg.uri)).type & SL) !== 0) { skip('symlink', rel0(tg.uri)); continue; } } catch (e) { continue; }
+      extFolders.push(rel0(tg.uri) || '.'); await scanTree(tg.uri);
+    } else if (tg.kind === 'file') {
+      const nm = P.basename(tg.uri.path);
+      if (!wanted(nm)) { if (!IGNORABLE.test(nm)) skip('ext', nm, rel0(tg.uri)); continue; }
       if (!found.has(rel0(tg.uri))) await statInto([{ rel: rel0(tg.uri), uri: tg.uri }]);
     } else { // prefix: files next to it with the same base name
       const dir = vscode.Uri.joinPath(tg.uri, '..'); const stem = P.basename(tg.uri.path);
@@ -192,7 +228,7 @@ async function mirror(vscode, dirUri, cacheDir, opts) {
   }
   const all = [...found.values()];
   const totalBytes = all.reduce((a, f) => a + f.size, 0);
-  if (totalBytes > maxBytes) return { tooBig: true, totalBytes, scanned, files: all.length, ms: Date.now() - t0 };
+  if (totalBytes > maxBytes) return { tooBig: true, totalBytes, scanned, files: all.length, skipped, ms: Date.now() - t0 };
 
   const todo = all.filter((f) => {
     const m = manifest[f.rel];
@@ -205,6 +241,7 @@ async function mirror(vscode, dirUri, cacheDir, opts) {
     try {
       const data = await wfs.readFile(f.uri);
       const dst = path.join(srcRoot, f.rel);
+      if (path.relative(srcRoot, dst).split(path.sep)[0] === '..') throw new Error('outside the mirror');
       fs.mkdirSync(path.dirname(dst), { recursive: true });
       fs.writeFileSync(dst, data);
       copied++; bytes += data.byteLength;
@@ -223,7 +260,20 @@ async function mirror(vscode, dirUri, cacheDir, opts) {
     }
   })(srcRoot, '');
   fs.writeFileSync(manPath, JSON.stringify({ v: 2, base: baseKey, files: next }));
-  return { tooBig: false, scanned, files: all.length, copied, bytes, removed, totalBytes, extFolders, base: baseKey, ms: Date.now() - t0 };
+  return { tooBig: false, scanned, files: all.length, copied, bytes, removed, totalBytes, extFolders, skipped, base: baseKey, ms: Date.now() - t0 };
+}
+
+// One line for the banner when the mirror left files out, e.g. 'Not copied: 2 with an unknown extension (a.xyz), 1 over 25 MB'. '' when none.
+function skippedNote(sk) {
+  if (!sk) return '';
+  const parts = [];
+  if (sk.ext) parts.push(sk.ext + ' with an unknown extension');
+  if (sk.big) parts.push(sk.big + ' over ' + MAX_FILE / 1048576 + ' MB');
+  if (sk.deep) parts.push(sk.deep + ' folder(s) deeper than ' + MAX_DEPTH + ' levels');
+  if (sk.dot) parts.push(sk.dot + ' dot-file(s)');
+  if (sk.symlink) parts.push(sk.symlink + ' symlink(s)');
+  if (sk.outside) parts.push(sk.outside + ' outside the mirror');
+  return parts.length ? 'Not copied to the preview folder: ' + parts.join(', ') + (sk.examples && sk.examples.length ? ' (for example ' + sk.examples.slice(0, 5).join(', ') + ')' : '') + '.' : '';
 }
 
 const uncomment = (t) => String(t).replace(/(^|[^\\])%.*$/gm, '$1');
@@ -258,15 +308,25 @@ function gather(rootFile) {
   return texts;
 }
 
-function texDefs(rootFile) {
+// '% !TEX def = <TeX code>' lines in the first 30 lines. Returns { lines, rejected: [{ line, why }] }.
+// Only \def, \newcommand, \renewcommand, \providecommand and \let lines without shell-significant characters are accepted.
+const DEF_START = /^\\(?:def|newcommand|renewcommand|providecommand|let)(?![A-Za-z])/;
+const DEF_BAD = /["$`|;&\r\n\x00]/;
+function texDefsInfo(rootFile) {
   let head = '';
-  try { head = fs.readFileSync(rootFile, 'utf8').split('\n').slice(0, 30).join('\n'); } catch (e) { return ''; }
-  const defs = [];
+  try { head = fs.readFileSync(rootFile, 'utf8').split('\n').slice(0, 30).join('\n'); } catch (e) { return { lines: [], rejected: [] }; }
+  const lines = []; const rejected = [];
   const re = /^\s*%\s*!\s*TEX\s+def\s*=\s*(.+?)\s*$/gim;
   let m;
-  while ((m = re.exec(head))) defs.push(m[1]);
-  return defs.join('');
+  while ((m = re.exec(head))) {
+    const l = m[1];
+    if (DEF_BAD.test(l)) rejected.push({ line: l, why: 'contains a character that is not allowed (" $ ` | ; & or a control character)' });
+    else if (!DEF_START.test(l)) rejected.push({ line: l, why: 'does not start with \\def, \\newcommand, \\renewcommand, \\providecommand or \\let' });
+    else lines.push(l);
+  }
+  return { lines, rejected };
 }
+const texDefs = (rootFile) => texDefsInfo(rootFile).lines.join('');
 
 function detectEngine(rootFile) {
   const dir = path.dirname(rootFile);
@@ -280,8 +340,8 @@ function detectEngine(rootFile) {
     if (p === 'pdflatex') return 'pdflatex';
   }
   const all = uncomment(texts.join('\n'));
-  if (/\\directlua|\\luaexec|\{luacode\*?\}|\\usepackage(?:\[[^\]]*\])?\{[^}]*\b(?:luacode|luatexja|luatexbase|lualatex-math)\b/.test(all)) return 'lualatex';
-  if (/\\usepackage(?:\[[^\]]*\])?\{[^}]*\b(?:fontspec|unicode-math|xeCJK|polyglossia)\b/.test(all)) return 'xelatex';
+  if (/\\directlua|\\luaexec|\{luacode\*?\}|\\(?:usepackage|RequirePackage)(?:\[[^\]]*\])?\{[^}]*\b(?:luacode|luatexja|luatexbase|lualatex-math)\b/.test(all)) return 'lualatex';
+  if (/\\(?:usepackage|RequirePackage)(?:\[[^\]]*\])?\{[^}]*\b(?:fontspec|unicode-math|xeCJK|polyglossia)\b/.test(all)) return 'xelatex';
   return 'pdflatex';
 }
 const usesBiblatex = (rootFile) => { try { return /\\usepackage(?:\[[^\]]*\])?\{[^}]*\bbiblatex\b/.test(uncomment(fs.readFileSync(rootFile, 'utf8'))); } catch (e) { return false; } };
@@ -304,72 +364,155 @@ function parseLog(logText, hint) {
     const f = mp[1]; const pkg = f.replace(/\.(sty|cls)$/, '');
     return { text, missing: f, banner: `Missing package ${f}. Install with: sudo tlmgr install ${pkg} (BasicTeX). Or run 'tlmgr search --global --file ${f}' to find the package name.` };
   }
-  if (/\\def\\[A-Za-z@]+|\bpass (?:the )?[\w ]*(?:path|file|argument)|command[- ]line/i.test(lines.slice(at, at + 4).join('\n'))) {
+  // Only a missing template argument: an undefined \name that the context shows as a \def\name, or the template's own "pass the ... path" message.
+  // A "Runaway definition" or any other error that merely mentions \def must not trigger this.
+  const first = lines[at]; const ctx = lines.slice(at, at + 4).join('\n');
+  const undef = /^! Undefined control sequence/.test(first) && /\\def\\[A-Za-z@]+/.test(ctx);
+  const tmpl = /^! .*\bpass (?:the )?[\w ]*(?:path|file|argument)/i.test(first) && !/Runaway/i.test(first);
+  if (undef || tmpl) {
     return { text, needsArgs: true, banner: 'This template needs arguments before it can compile. Add lines like  % !TEX def = \\def\\name{value}  in the first 30 lines of the root file. The template says:\n' + text };
   }
   return { text, banner: text };
 }
 
-// One compile per root at a time; a request during a run sets `rerun`.
+// One compile per root at a time. A request during a run replaces the pending one (latest run/onDone win)
+// and the run is repeated once afterwards; a `force` request made meanwhile is remembered.
 class Compiler {
   constructor() { this.state = new Map(); }
 
-  // run(): async () => result. Returns the results of every run it started, via onDone.
-  request(key, run, onDone) {
+  // run({ force }): async () => result. onDone(result, rerunPending) fires after every run, even if run or onDone throws.
+  request(key, run, onDone, force) {
     let s = this.state.get(key);
-    if (!s) { s = { running: false, rerun: false }; this.state.set(key, s); }
-    if (s.running) { s.rerun = true; return false; }
+    if (!s) { s = { running: false, next: null, force: false }; this.state.set(key, s); }
+    s.next = { run, onDone };
+    if (force) s.force = true;
+    if (s.running) return false;
     s.running = true;
     (async () => {
       try {
-        do {
-          s.rerun = false;
+        while (s.next) {
+          const cur = s.next; s.next = null;
+          const f = s.force; s.force = false;
           let res;
-          try { res = await run(); } catch (e) { res = { ok: false, banner: 'Compile failed: ' + (e && e.message) }; }
-          onDone(res, s.rerun);
-        } while (s.rerun);
+          try { res = await cur.run({ force: f }); } catch (e) { res = { ok: false, banner: 'Compile failed: ' + (e && e.message) }; }
+          try { cur.onDone(res, !!s.next); } catch (e) { /* a failing status callback must not stop the queue */ }
+        }
       } finally { s.running = false; }
     })();
     return true;
   }
 }
 
-// Run latexmk for rootFile (in the mirror). Resolves { ok, ms, engine, pdf, logPath, banner }.
+// ---- running latexmk ----
+const live = new Set(); // running latexmk children
+
+// Kill a child and everything it started (the engine and helpers run under latexmk).
+function killTree(child, platform) {
+  if (!child || !child.pid) return;
+  if ((platform || process.platform) === 'win32') {
+    try { const k = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }); k.on('error', () => { /* ignore */ }); }
+    catch (e) { try { child.kill(); } catch (x) { /* gone */ } }
+    return;
+  }
+  try { process.kill(-child.pid, 'SIGKILL'); } catch (e) { try { child.kill('SIGKILL'); } catch (x) { /* gone */ } }
+}
+
+// Kill every running compile (call on deactivate). Returns how many were killed.
+function killAll() {
+  let n = 0;
+  for (const c of [...live]) { c.fdvKilled = true; killTree(c); n++; }
+  return n;
+}
+
+// Where TeX usually lives when the user has not set a path. win32: MiKTeX and TeX Live are on PATH.
+function defaultTexPath(platform, fsImpl) {
+  const pf = platform || process.platform; const f = fsImpl || fs;
+  if (pf === 'darwin') return '/Library/TeX/texbin';
+  if (pf === 'win32') return '';
+  const dirs = [];
+  try { // /usr/local/texlive/<year>/bin/<arch>, newest year first
+    const root = '/usr/local/texlive';
+    for (const y of f.readdirSync(root).sort().reverse()) {
+      const b = root + '/' + y + '/bin';
+      let archs = []; try { archs = f.readdirSync(b); } catch (e) { archs = []; }
+      for (const a of archs.sort()) dirs.push(b + '/' + a);
+    }
+  } catch (e) { /* no TeX Live under /usr/local */ }
+  dirs.push('/usr/bin');
+  return dirs.join(':');
+}
+
+// Folders to put in front of PATH: the configured texPath if it exists, else the platform default (existing folders only).
+function texPathDirs(configured, platform, fsImpl) {
+  const pf = platform || process.platform; const f = fsImpl || fs;
+  const delim = (pf === 'win32' ? path.win32 : path.posix).delimiter;
+  const keep = (list) => String(list || '').split(delim).map((x) => x.trim()).filter((x) => x && f.existsSync(x));
+  const c = keep(configured);
+  return c.length ? c : keep(defaultTexPath(pf, f));
+}
+
+// Characters that latexmk's shell would act on inside double quotes (it runs the engine through a shell).
+const UNSAFE_NAME = /["$`|;&\r\n\x00]/;
+
+// Run latexmk for rootFile (in the mirror). Resolves { ok, ms, engine, pdf, logPath, pdfPath, banner, warnings }.
+// o: { texPath, force, timeoutMs, platform, skipped }.
 function compile(rootFile, cacheDir, o) {
+  o = o || {};
+  const platform = o.platform || process.platform;
   const outDir = path.join(cacheDir, 'out');
-  fs.mkdirSync(outDir, { recursive: true });
-  const base = path.basename(rootFile).replace(/\.tex$/i, '');
+  const rootBase = path.basename(rootFile);
+  const base = rootBase.replace(/\.tex$/i, '');
   const logPath = path.join(outDir, base + '.log');
   const pdfPath = path.join(outDir, base + '.pdf');
+  const cwd = path.dirname(rootFile);
   const engine = detectEngine(rootFile);
+  const early = (banner) => Promise.resolve({ ok: false, engine, logPath, pdfPath, ms: 0, banner, warnings });
+  const warnings = [];
+  if (UNSAFE_NAME.test(rootBase) || UNSAFE_NAME.test(outDir)) return early('Cannot compile: the file name or cache folder contains a character that is unsafe for the TeX runner (one of " $ ` | ; & or a line break). Rename the file.');
+  if (!fs.existsSync(cwd)) return early(`The working folder ${cwd} does not exist (the local copy of the paper is missing). Save the file or run the compile again to rebuild it.`);
+  fs.mkdirSync(outDir, { recursive: true });
   const flag = { pdflatex: '-pdf', xelatex: '-pdfxe', lualatex: '-pdflua' }[engine];
   const args = [flag, '-interaction=nonstopmode', '-file-line-error', '-halt-on-error', '-synctex=1', '-outdir=' + outDir];
-  // '% !TEX def = <TeX code>' lines in the root's first 30 lines run before the file,
-  // like: xelatex "\def\x{..}\input{root}". Several lines are joined.
-  const pre = texDefs(rootFile);
-  if (pre) args.push('-usepretex=' + pre);
+  // '% !TEX def = <TeX code>' lines run before the file. They go into a wrapper file next to the root
+  // (never onto the command line, which latexmk passes through a shell). The wrapper is compiled with
+  // -jobname=<root name>, so the log and PDF keep the root's name.
+  const info = texDefsInfo(rootFile);
+  for (const r of info.rejected) warnings.push('Ignored "% !TEX def = ' + r.line + '": ' + r.why + '.');
+  let target = rootBase;
+  if (info.lines.length) {
+    if (/[{}\\%#~^]/.test(rootBase)) warnings.push('Ignored % !TEX def lines: the file name has characters TeX cannot take in \\input.');
+    else {
+      const wrapper = '_fdv_main.tex';
+      const arg = /\s/.test(rootBase) ? '"./' + rootBase + '"' : './' + rootBase;
+      try {
+        fs.writeFileSync(path.join(cwd, wrapper), info.lines.join('\n') + '\n\\input{' + arg + '}\n');
+        target = wrapper; args.push('-jobname=' + base);
+      } catch (e) { warnings.push('Ignored % !TEX def lines: could not write the wrapper file (' + (e && e.message) + ').'); }
+    }
+  }
   if (o.force) args.push('-g');
-  args.push(path.basename(rootFile));
-  const env = Object.assign({}, process.env, { PATH: (o.texPath ? o.texPath + ':' : '') + (process.env.PATH || '') });
+  args.push('./' + target); // './' so a name starting with '-' is not read as an option
+  const dirs = texPathDirs(o.texPath, platform).concat((process.env.PATH || '').split(path.delimiter).filter(Boolean));
+  const env = Object.assign({}, process.env, { PATH: dirs.join(path.delimiter) });
+  const warnText = () => warnings.length ? '\n' + warnings.join('\n') : '';
   const t0 = Date.now();
   try { fs.unlinkSync(logPath); } catch (e) { /* none */ }
   return new Promise((resolve) => {
-    let out = ''; let settled = false; let timedOut = false; let child;
-    const done = (r) => { if (settled) return; settled = true; clearTimeout(timer); resolve(Object.assign({ engine, logPath, pdfPath, ms: Date.now() - t0 }, r)); };
+    let out = ''; let settled = false; let timedOut = false; let child; let timer;
+    const done = (r) => { if (settled) return; settled = true; clearTimeout(timer); if (child) live.delete(child); resolve(Object.assign({ engine, logPath, pdfPath, ms: Date.now() - t0, warnings }, r)); };
     const noTex = `TeX not found. Set paperMd.tex.texPath to the folder that holds latexmk and ${engine} (for example /Library/TeX/texbin on macOS).`;
     try {
-      child = spawn('latexmk', args, { cwd: path.dirname(rootFile), env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
-    } catch (e) { done({ ok: false, banner: noTex }); return; }
+      child = spawn('latexmk', args, { cwd, env, detached: platform !== 'win32', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) { done({ ok: false, banner: noTex + warnText() }); return; }
+    live.add(child);
     const add = (d) => { out += d; if (out.length > 200000) out = out.slice(-100000); };
     child.stdout.on('data', add); child.stderr.on('data', add);
-    const timer = setTimeout(() => {
-      timedOut = true;
-      try { process.kill(-child.pid, 'SIGKILL'); } catch (e) { try { child.kill('SIGKILL'); } catch (x) { /* gone */ } }
-    }, o.timeoutMs || 180000);
+    timer = setTimeout(() => { timedOut = true; killTree(child, platform); }, o.timeoutMs || 180000);
     child.on('error', (e) => {
-      done({ ok: false, banner: e && e.code === 'ENOENT' ? noTex : 'Could not start latexmk: ' + (e && e.message) });
+      done({ ok: false, banner: (e && e.code === 'ENOENT' ? noTex : 'Could not start latexmk: ' + (e && e.message)) + warnText() });
     });
     child.on('close', (code) => {
+      if (child.fdvKilled) { done({ ok: false, killed: true, banner: 'Compile cancelled.' }); return; }
       if (timedOut) { done({ ok: false, timedOut: true, banner: `Compile timed out after ${Math.round((o.timeoutMs || 180000) / 1000)} s and was killed.` }); return; }
       let logText = ''; try { logText = fs.readFileSync(logPath, 'utf8'); } catch (e) { /* no log */ }
       if (code === 0 && fs.existsSync(pdfPath)) { done({ ok: true, pdf: pdfPath }); return; }
@@ -386,9 +529,12 @@ function compile(rootFile, cacheDir, o) {
       if (usesBiblatex(rootFile) && /biber/i.test(out + logText) && /not found|Can't locate|fail|could not/i.test(out + logText)) {
         banner += '\nThis document uses biblatex with biber, and biber is missing. Copy a current .bbl file next to the root document, or install biber.';
       }
-      done({ ok: false, code, banner, parsed: pe });
+      // A missing file in the log may be one the mirror left out: say so.
+      const note = skippedNote(o.skipped);
+      if (note && /not found|No such file|Cannot find|Unable to load|does not exist/i.test(banner + logText)) banner += '\n' + note;
+      done({ ok: false, code, banner: banner + warnText(), parsed: pe });
     });
   });
 }
 
-module.exports = { texDefs, findExternal, mirror, detectEngine, parseLog, compile, Compiler, cacheDirFor, pool, EXTS };
+module.exports = { texDefs, texDefsInfo, findExternal, mirror, skippedNote, detectEngine, parseLog, compile, Compiler, killAll, killTree, defaultTexPath, texPathDirs, cacheDirFor, pool, EXTS };

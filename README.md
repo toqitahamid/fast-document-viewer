@@ -6,6 +6,10 @@
 
 A fast, efficient, read-only viewer for Markdown, PDF, HTML and LaTeX in VS Code and Cursor. Files appear as a clean printed page, and switching between them takes tens of milliseconds, including over Remote-SSH.
 
+## Who is it for
+
+Students, researchers, engineers working over SSH on clusters, and anyone who reads documents in their editor.
+
 ## Why
 
 A new webview tab costs about 1 s in VS Code and Cursor, and many viewers run on the remote host and fetch their assets over SSH. Fast Document Viewer runs locally and reuses one panel for every file, so only the first open pays the cost.
@@ -20,23 +24,21 @@ A new webview tab costs about 1 s in VS Code and Cursor, and many viewers run on
 - **Live reload:** a changed file, such as a rebuilt PDF, refreshes on its own.
 - **Light and read-only:** no language server, no indexing, no telemetry.
 
-## Install
+## Get started
 
-1. Download the `.vsix` from the [latest release](https://github.com/toqitahamid/fast-document-viewer/releases/latest).
-2. Install it and reload the window:
+1. Install the `.vsix` from the [latest release](https://github.com/toqitahamid/fast-document-viewer/releases/latest):
 
    ```bash
    code --install-extension fast-document-viewer-<version>.vsix
    cursor --install-extension fast-document-viewer-<version>.vsix
    ```
 
-Requires VS Code 1.85 or newer, or a recent Cursor. Compile mode also needs TeX on your local machine.
+2. Open the Command Palette and run **Fast Document Viewer: Turn On All Viewers**. No settings file to edit. A short walkthrough opens under **Get Started** too.
+3. Open a `.md`, `.pdf`, `.html` or `.tex` file. It shows in the viewer in place of the text tab. Use **Edit as text** to see the source.
 
-Upgrading from Paper MD Viewer (0.7.6 and earlier)? The extension ID changed, so uninstall the old one with `--uninstall-extension toqitahamid.paper-md-viewer`. Your `paperMd.*` settings keep working.
+Requires VS Code 1.85 or newer, or a recent Cursor.
 
-## Quick start
-
-Add this to your user `settings.json` and reload:
+**Optional: set it up by hand.** The command above does the equivalent of this in your user `settings.json`:
 
 ```json
 {
@@ -49,9 +51,27 @@ Add this to your user `settings.json` and reload:
 }
 ```
 
-Opening a `.md`, `.pdf`, `.html` or `.tex` file now shows it in the viewer in place of the text tab. Use **Edit as text** to see the source. To use Markdown as a custom editor instead, set `"*.md": "paperMd.viewer"` in `workbench.editorAssociations`.
+To use Markdown as a custom editor instead, set `"*.md": "paperMd.viewer"` in `workbench.editorAssociations`.
+
+**Upgrading from Paper MD Viewer** (0.7.6 and earlier)? The extension ID changed, so uninstall the old one with `--uninstall-extension toqitahamid.paper-md-viewer`. Your `paperMd.*` settings keep working.
+
+## Works on macOS, Windows and Linux
+
+Markdown, PDF, HTML and the LaTeX preview need nothing else. Compile mode needs TeX on the machine where the editor window runs (not the remote host):
+
+- macOS: MacTeX or BasicTeX
+- Windows: MiKTeX or TeX Live
+- Linux: `sudo apt install texlive-full latexmk` (or your distribution's TeX Live)
+
+`paperMd.tex.texPath` is empty by default and finds TeX for your platform. Set it only for an unusual install.
+
+## Accessibility
+
+Pages follow your light or dark theme, text is selectable, and the viewer works from the keyboard. Use the settings or `paperMd.customCss` to change fonts and sizes.
 
 ## Settings
+
+Find them in Settings by searching `paperMd`.
 
 | Setting | Default | Description |
 | --- | --- | --- |
@@ -61,45 +81,36 @@ Opening a `.md`, `.pdf`, `.html` or `.tex` file now shows it in the viewer in pl
 | `paperMd.html.enabled` | `false` | View `.html` and `.htm` files |
 | `paperMd.tex.enabled` | `false` | View `.tex` files |
 | `paperMd.tex.mode` | `"html"` | `"html"` for the preview, `"compile"` for a real PDF via `latexmk` |
-| `paperMd.tex.texPath` | `/Library/TeX/texbin` | Folder with `latexmk`, put in front of `PATH` |
+| `paperMd.tex.texPath` | `""` | Folder with `latexmk`; empty means auto-detect for your platform |
 | `paperMd.tex.maxMirrorMB` | `200` | Size limit for compile mode's local copy of the project |
+| `paperMd.allowRemoteImages` | `true` | Turn off to block remote `https:` images |
 | `paperMd.customCss` | `""` | CSS added after the built-in style |
+
+`paperMd.customCss` and `paperMd.tex.texPath` are read from your user settings only, not from a workspace.
 
 ## Commands
 
-`Paper MD: Open Follow Panel`, `Paper MD: Open as Text`, `Paper MD: Show Paper View`, `Paper MD: Recompile TeX` and `Paper MD: Open TeX Log`. Timings go to **View > Output > Paper MD**.
+All start with **Fast Document Viewer:** in the Command Palette: Turn On All Viewers, Show Document View, Open Viewer Panel, Edit as Text, Recompile TeX and Open TeX Log. Timings go to **View > Output > Paper MD**.
 
 ## Security
 
-- The extension makes no network requests and sends no telemetry.
-- Markdown and LaTeX previews run under a strict Content Security Policy, so scripts in them do not run. Images may load from `https:` URLs.
-- HTML pages run in a sandboxed iframe and their scripts do run, so open only HTML you trust.
-- Compile mode runs `latexmk` locally on a copy of your project, without `-shell-escape`. It never writes into your project. Compile only sources you trust.
+- The extension sends no telemetry. Its only network use is loading `https:` images that your documents reference, which you can block with `paperMd.allowRemoteImages`.
+- Markdown and LaTeX previews run under a strict Content Security Policy, so scripts in them do not run.
+- HTML pages run in a sandbox with the network blocked and access to their own folder only. Their scripts do run, so open only HTML you trust.
+- Compile mode runs `latexmk` locally on a copy of your project, without `-shell-escape`, and never writes into your project. Template definitions go in a generated wrapper file, not on the command line. It is limited in untrusted workspaces. Compile only sources you trust.
 
-Report vulnerabilities through a private security advisory on the Security tab.
+Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 
 ## Troubleshooting
 
-- **Nothing opens in the viewer.** Turn on `replaceTextTab`, `autoOpen` and the setting for that file type, then reload the window.
-- **Another extension still opens my files.** Set the pattern to `"default"` in `workbench.editorAssociations`, for example `"*.md": "default"`. This applies to Office Viewer and vscode-pdf.
-- **`latexmk failed (exit 12)`.** Run **Paper MD: Open TeX Log**. Usual causes are a missing package, a template that needs `% !TEX def` arguments, or files outside the project folder. See [docs/latex.md](docs/latex.md).
-- **`latexmk: command not found`.** Set `paperMd.tex.texPath` to the folder that holds `latexmk`.
-
-## Development
-
-```bash
-git clone https://github.com/toqitahamid/fast-document-viewer.git
-cd fast-document-viewer
-npm install
-node test.js                 # smoke check
-npx @vscode/vsce package     # build the .vsix
-```
-
-Press F5 in VS Code to start an Extension Development Host. The code is in `extension.js`, `src/` (rendering, LaTeX preview and compile) and `media/` (webview script and styles).
+- **Nothing opens in the viewer.** Run **Turn On All Viewers**, then reload the window.
+- **Another extension still opens my files.** Set the pattern to `"default"` in `workbench.editorAssociations`, for example `"*.md": "default"`.
+- **`latexmk failed (exit 12)`.** Run **Fast Document Viewer: Open TeX Log**. Usual causes are a missing package, a template that needs arguments, or files outside the project folder. See [docs/latex.md](docs/latex.md).
+- **`latexmk: command not found`.** Install TeX (see above) or set `paperMd.tex.texPath`.
 
 ## Contributing
 
-Issues and pull requests are welcome. For a bug report, include your editor version, whether you use Remote-SSH, the file type and the **Paper MD** output. For a change, keep it small, run `node test.js` and say how you tried it. There is no automated test suite yet, so tests are welcome.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) and the [changelog](CHANGELOG.md).
 
 ## License
 

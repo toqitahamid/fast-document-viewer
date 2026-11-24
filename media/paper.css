@@ -1,54 +1,80 @@
-html { background: #fff; }
-body { margin: 0; background: #fff; color: #000; }
+/* Theme: a printed-paper look in light themes, a readable dark page in dark and high-contrast themes.
+   VS Code puts vscode-light / vscode-dark / vscode-high-contrast(-light) on <body>.
+   paperMd.customCss is loaded after this file and can override any --paper-* variable. */
+:root { --paper-mono: var(--vscode-editor-font-family, 'SFMono-Regular', Menlo, Consolas, 'DejaVu Sans Mono', monospace); }
+body {
+  --paper-bg: #fff; --paper-fg: #000; --paper-link: #000080; --paper-code-bg: #f5f5f5; --paper-soft-bg: #eee;
+  --paper-border: #bbb; --paper-muted: #595959; --paper-mark: #fff3a0; --paper-error: #b00000;
+  --hl-comment: #5a6370; --hl-keyword: #a71d5d; --hl-string: #0b6e4f; --hl-number: #0044aa;
+  --paper-banner-error: #b3261e; --paper-banner-info: #2b5797;
+}
+body.vscode-dark, body.vscode-high-contrast:not(.vscode-high-contrast-light) {
+  --paper-bg: #1e1e1e; --paper-fg: #d8d8d8; --paper-link: #7cc0ff; --paper-code-bg: #2b2b2b; --paper-soft-bg: #2f2f2f;
+  --paper-border: #5a5a5a; --paper-muted: #a8a8a8; --paper-mark: #5c4d00; --paper-error: #ff8f85;
+  --hl-comment: #8b949e; --hl-keyword: #ff7b72; --hl-string: #7ee787; --hl-number: #79c0ff;
+}
+body.vscode-high-contrast:not(.vscode-high-contrast-light) { --paper-bg: #000; --paper-fg: #fff; --paper-link: #6fc3ff; --paper-code-bg: #000; --paper-soft-bg: #000; --paper-border: #fff; --paper-muted: #e0e0e0; }
+body { margin: 0; background: var(--paper-bg); color: var(--paper-fg); }
+html.pdf-mode, html.pdf-mode body { background: #525659; }
+body.vscode-high-contrast:not(.vscode-high-contrast-light) #content { border: 1px solid var(--paper-border); }
+:focus-visible { outline: 2px solid var(--vscode-focusBorder, #0066cc); outline-offset: 2px; }
+#content a:focus-visible { outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto !important; }
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+#paper-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 50; padding: 8px 40px 8px 14px; font: 13px/1.4 var(--vscode-font-family, sans-serif); white-space: pre-wrap; max-height: 40vh; overflow: auto; box-shadow: 0 2px 6px rgba(0,0,0,.3); color: #fff; }
+#paper-banner[hidden] { display: none; }
+#paper-banner.error { background: var(--paper-banner-error); }
+#paper-banner.info { background: var(--paper-banner-info); }
+#paper-banner .paper-banner-x { position: absolute; top: 4px; right: 10px; background: none; border: 0; color: #fff; font-size: 20px; line-height: 1; cursor: pointer; padding: 0 4px; }
+#paper-banner :focus-visible { outline-color: #fff; }
 #content {
   max-width: 800px; margin: 0 auto; padding: 40px; box-sizing: content-box;
-  font-family: 'LM Roman 10', 'Latin Modern Roman', 'CMU Serif', Georgia, serif;
-  font-size: 17px; line-height: 1.5; text-align: justify; hyphens: auto; -webkit-hyphens: auto;
-  color: #000; background: #fff;
+  font-family: var(--paper-font, 'LM Roman 10', 'Latin Modern Roman', 'CMU Serif', Georgia, serif);
+  font-size: var(--paper-font-size, 17px); line-height: 1.5; text-align: justify; hyphens: auto; -webkit-hyphens: auto;
+  color: var(--paper-fg); background: var(--paper-bg);
 }
 #content h1, #content h2, #content h3, #content h4, #content h5, #content h6 {
-  font-family: inherit; color: #000; border: 0; text-align: left; line-height: 1.25; margin: 1.4em 0 0.5em;
+  font-family: inherit; color: var(--paper-fg); border: 0; text-align: left; line-height: 1.25; margin: 1.4em 0 0.5em;
 }
 #content h1 { font-size: 1.8em; } #content h2 { font-size: 1.4em; } #content h3 { font-size: 1.2em; }
-#content a { color: #000080; }
-#content code { font-family: 'SFMono-Regular', Menlo, Consolas, 'DejaVu Sans Mono', monospace; font-size: 0.88em; color: #000; background: #f5f5f5; padding: 0.1em 0.3em; border-radius: 2px; }
-#content pre { color: #000; background: #f5f5f5; padding: 10px 14px; overflow-x: auto; text-align: left; line-height: 1.4; }
-#content pre code { color: #000; background: none; padding: 0; }
-#content kbd { color: #000; background: #f5f5f5; border: 1px solid #bbb; border-radius: 3px; padding: 0 0.3em; }
-#content mark { color: #000; background: #fff3a0; }
+#content a { color: var(--paper-link); }
+#content code { font-family: var(--paper-mono); font-size: 0.88em; color: var(--paper-fg); background: var(--paper-code-bg); padding: 0.1em 0.3em; border-radius: 2px; }
+#content pre { color: var(--paper-fg); background: var(--paper-code-bg); padding: 10px 14px; overflow-x: auto; text-align: left; line-height: 1.4; }
+#content pre code { color: var(--paper-fg); background: none; padding: 0; }
+#content kbd { color: var(--paper-fg); background: var(--paper-code-bg); border: 1px solid var(--paper-border); border-radius: 3px; padding: 0 0.3em; }
+#content mark { color: var(--paper-fg); background: var(--paper-mark); }
 #content strong, #content em, #content li, #content p, #content td, #content th { color: inherit; }
 #content img { max-width: 100%; height: auto; }
-#content blockquote { margin: 1em 0; padding: 0 1em; border-left: 3px solid #ccc; color: #222; background: none; }
-#content hr { border: 0; border-top: 1px solid #000; }
-#content table { width: 100%; border-collapse: collapse; border-top: 2px solid #000; border-bottom: 2px solid #000; font-size: 0.95em; margin: 1em 0; }
+#content blockquote { margin: 1em 0; padding: 0 1em; border-left: 3px solid var(--paper-border); color: var(--paper-fg); background: none; }
+#content hr { border: 0; border-top: 1px solid var(--paper-fg); }
+#content table { width: 100%; border-collapse: collapse; border-top: 2px solid var(--paper-fg); border-bottom: 2px solid var(--paper-fg); font-size: 0.95em; margin: 1em 0; }
 #content th, #content td { padding: 4px 10px; text-align: left; vertical-align: top; border: 0; background: none; }
-#content thead tr, #content thead th { border-bottom: 1px solid #000; }
+#content thead tr, #content thead th { border-bottom: 1px solid var(--paper-fg); }
 #content tbody tr:nth-child(even) { background: none; }
 #content ul.contains-task-list, #content li.task-list-item { list-style: none; }
 #content .task-list-item-checkbox { margin: 0 0.4em 0 -1.3em; }
 #content .katex-display { overflow-x: auto; overflow-y: hidden; text-align: center; }
-.hljs-comment, .hljs-quote { color: #6a737d; } .hljs-keyword, .hljs-selector-tag, .hljs-literal { color: #a71d5d; }
-.hljs-string, .hljs-attr, .hljs-name { color: #0b6e4f; } .hljs-number, .hljs-built_in, .hljs-title, .hljs-type { color: #0044aa; }
-#edit-btn { position: fixed; top: 8px; right: 12px; z-index: 10; font: 12px sans-serif; background: #f0f0f0; color: #000; border: 1px solid #bbb; border-radius: 3px; padding: 3px 8px; cursor: pointer; opacity: 0.7; }
-#edit-btn:hover { opacity: 1; }
-html.pdf-mode, html.pdf-mode body { background: #525659; }
+.hljs-comment, .hljs-quote { color: var(--hl-comment); } .hljs-keyword, .hljs-selector-tag, .hljs-literal { color: var(--hl-keyword); }
+.hljs-string, .hljs-attr, .hljs-name { color: var(--hl-string); } .hljs-number, .hljs-built_in, .hljs-title, .hljs-type { color: var(--hl-number); }
+#edit-btn { position: fixed; top: 8px; right: 12px; z-index: 10; font: 12px var(--vscode-font-family, sans-serif); background: var(--paper-soft-bg); color: var(--paper-fg); border: 1px solid var(--paper-muted); border-radius: 3px; padding: 3px 8px; cursor: pointer; opacity: 0.9; }
+#edit-btn:hover, #edit-btn:focus-visible { opacity: 1; }
 #pdf { position: relative; display: flex; flex-direction: column; align-items: center; width: max-content; min-width: 100%; box-sizing: border-box; padding: 16px; gap: 12px; color: #eee; font: 14px sans-serif; }
-#htmlframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
-#htmlframe[hidden] { display: none; }
 #pdf[hidden], #pdfbar[hidden] { display: none; }
 #pdf .pdf-page { position: relative; flex: none; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.5); }
 #pdf .pdf-page canvas { display: block; }
-#pdfbar { position: fixed; top: 8px; right: 12px; z-index: 10; display: flex; gap: 4px; align-items: center; font: 12px sans-serif; background: rgba(40,40,40,0.85); color: #eee; border-radius: 4px; padding: 3px 6px; opacity: 0.75; }
-#pdfbar:hover { opacity: 1; }
-#pdfbar button { font: 12px sans-serif; background: #666; color: #fff; border: 0; border-radius: 3px; padding: 2px 8px; cursor: pointer; }
-#pdfbar button:hover { background: #888; }
+#pdfbar { position: fixed; top: 8px; right: 12px; z-index: 10; display: flex; gap: 4px; align-items: center; font: 12px sans-serif; background: rgba(40,40,40,0.85); color: #eee; border-radius: 4px; padding: 3px 6px; opacity: 0.92; }
+#pdfbar:hover, #pdfbar:focus-within { opacity: 1; }
+#pdfbar button { font: 12px sans-serif; background: #555; color: #fff; border: 0; border-radius: 3px; padding: 2px 8px; cursor: pointer; }
+#pdfbar button:hover { background: #767676; }
 #pdf-page { min-width: 52px; text-align: center; }
 /* LaTeX preview (src/tex.js) */
 #content .tex-title { text-align: center; margin: 0 0 1.6em; }
 #content .tex-title h1 { text-align: center; margin: 0.4em 0 0.6em; font-size: 1.7em; }
 #content .tex-authors { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.4em 2.2em; font-size: 1.05em; }
 #content .tex-author { text-align: center; }
-#content .tex-aff, #content .tex-date { font-size: 0.85em; color: #333; text-align: center; }
+#content .tex-aff, #content .tex-date { font-size: 0.85em; color: var(--paper-muted); text-align: center; }
 #content .tex-abstract { margin: 1.2em 2.2em; font-size: 0.92em; }
 #content .tex-abs-h { text-align: center; font-weight: bold; margin-bottom: 0.4em; }
 #content .tex-secnum { margin-right: 0.45em; }
@@ -57,7 +83,7 @@ html.pdf-mode, html.pdf-mode body { background: #525659; }
 #content .tex-left { text-align: left; } #content .tex-right { text-align: right; }
 #content .tex-eq { margin: 0.9em 0; position: relative; overflow-x: auto; overflow-y: hidden; }
 #content .tex-eq .katex-display { margin: 0; }
-#content .tex-err { background: #eee; color: #555; font-size: 0.85em; white-space: pre-wrap; }
+#content .tex-err { background: var(--paper-soft-bg); color: var(--paper-muted); font-size: 0.85em; white-space: pre-wrap; }
 #content .tex-fl { margin: 1.2em 0; text-align: center; font-size: 0.95em; }
 #content .tex-fl figcaption, #content .tex-cap { font-size: 0.9em; text-align: justify; margin: 0.5em 1.5em; }
 #content .tex-cap { text-align: center; margin: 0.8em 0; }
@@ -69,17 +95,17 @@ html.pdf-mode, html.pdf-mode body { background: #525659; }
 #content .tex-mini { display: inline-block; vertical-align: top; }
 #content .tex-parbox { display: inline-block; vertical-align: top; }
 #content .tex-img { max-width: 100%; height: auto; vertical-align: middle; }
-#content .tex-gfx { display: inline-block; box-sizing: border-box; max-width: 100%; padding: 1.4em 0.8em; background: #eee; color: #666; border: 1px dashed #aaa; font: 12px 'SFMono-Regular', Menlo, Consolas, monospace; text-align: center; }
+#content .tex-gfx { display: inline-block; box-sizing: border-box; max-width: 100%; padding: 1.4em 0.8em; background: var(--paper-soft-bg); color: var(--paper-muted); border: 1px dashed var(--paper-muted); font: 12px var(--paper-mono); text-align: center; }
 #content .tex-gfx.tex-block { display: block; margin: 1em 0; }
 #content .tex-tabwrap { overflow-x: auto; margin: 0.4em 0; }
 #content table.tex-tab { width: auto; margin: 0 auto; }
-#content table.tex-tab tr.rl > td { border-top: 1px solid #000; }
-#content table.tex-tab tr.rb > td { border-bottom: 1px solid #000; }
-#content table.tex-tab td.cl { border-top: 1px solid #555; }
+#content table.tex-tab tr.rl > td { border-top: 1px solid var(--paper-fg); }
+#content table.tex-tab tr.rb > td { border-bottom: 1px solid var(--paper-fg); }
+#content table.tex-tab td.cl { border-top: 1px solid var(--paper-muted); }
 #content table.tex-tab td { padding: 3px 8px; }
-#content .tex-fbox { border: 1px solid #000; padding: 0 0.25em; }
-#content .tex-algo { text-align: left; font-family: 'SFMono-Regular', Menlo, Consolas, 'DejaVu Sans Mono', monospace; font-size: 0.85em; white-space: pre-wrap; line-height: 1.45; padding: 6px 10px; background: #f5f5f5; }
-#content .tex-algo-c { color: #666; }
+#content .tex-fbox { border: 1px solid var(--paper-fg); padding: 0 0.25em; }
+#content .tex-algo { text-align: left; font-family: var(--paper-mono); font-size: 0.85em; white-space: pre-wrap; line-height: 1.45; padding: 6px 10px; background: var(--paper-code-bg); }
+#content .tex-algo-c { color: var(--paper-muted); }
 #content .tex-verb { font-size: 0.85em; }
 #content .tex-thm { margin: 0.9em 0; }
 #content .tex-thm > p { margin: 0.4em 0; }
@@ -92,8 +118,8 @@ html.pdf-mode, html.pdf-mode body { background: #525659; }
 #content .tex-list li > p { margin: 0.2em 0; }
 #content .tex-list dt { font-weight: bold; }
 #content li.tex-lab { list-style: none; margin-left: -1.2em; }
-#content .tex-note { color: #888; font-size: 0.85em; }
-#content .tex-unres { color: #b00; }
+#content .tex-note { color: var(--paper-muted); font-size: 0.85em; }
+#content .tex-unres { color: var(--paper-error); }
 #content .tex-ref, #content .tex-cite { text-decoration: none; }
 #content sup.tex-fnref a { text-decoration: none; }
 #content .tex-footnotes { font-size: 0.82em; margin-top: 2em; text-align: left; }
@@ -106,9 +132,9 @@ html.pdf-mode, html.pdf-mode body { background: #525659; }
 #content .tex-bibno { display: inline-block; min-width: 2.2em; text-indent: 0; }
 #content .tex-pdffig { display: inline-block; max-width: 100%; vertical-align: middle; }
 #content .tex-pdffig img { display: block; width: 100%; height: auto; background: #fff; }
-#content .tex-partof { font: 12px sans-serif; color: #888; margin: 0 0 1em; text-align: left; }
+#content .tex-partof { font: 12px sans-serif; color: var(--paper-muted); margin: 0 0 1em; text-align: left; }
 #content .tex-sp { display: inline-block; height: 1px; }
-#content .tex-rule { border-top: 1px solid #000; height: 0; vertical-align: middle; }
+#content .tex-rule { border-top: 1px solid var(--paper-fg); height: 0; vertical-align: middle; }
 #content .tex-fa { font-size: 0.9em; margin-right: 0.15em; }
 #content p.tex-hf { display: flex; justify-content: space-between; gap: 1em; text-align: left; }
 #content p.tex-hf > .tex-hr { text-align: right; flex: 0 0 auto; }
@@ -121,7 +147,7 @@ html.pdf-mode, html.pdf-mode body { background: #525659; }
 #content table.tex-tab.wide td:last-child:not(:first-child) { text-align: right; }
 #content ul.tex-nolab { list-style: none; padding-left: 0; }
 #content .tex-sp { display: inline-block; height: 1px; }
-#content .tex-rule { border-top: 1px solid #000; height: 0; vertical-align: middle; }
+#content .tex-rule { border-top: 1px solid var(--paper-fg); height: 0; vertical-align: middle; }
 #content .tex-fa { font-size: 0.9em; margin-right: 0.15em; }
 #content p.tex-hf { display: flex; justify-content: space-between; gap: 1em; text-align: left; }
 #content p.tex-hf > .tex-hr { text-align: right; flex: 0 0 auto; }
@@ -140,3 +166,19 @@ html.pdf-mode, html.pdf-mode body { background: #525659; }
 #pdf .textLayer { position: absolute; inset: 0; overflow: hidden; opacity: 1; line-height: 1; text-align: initial; z-index: 1; --scale-factor: 1; }
 #pdf .textLayer span, #pdf .textLayer br { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; }
 #pdf .textLayer ::selection { background: rgba(0, 100, 255, 0.25); }
+
+@media print {
+  body, body.vscode-dark, body.vscode-high-contrast:not(.vscode-high-contrast-light) {
+    --paper-bg: #fff; --paper-fg: #000; --paper-link: #000080; --paper-code-bg: #f5f5f5; --paper-soft-bg: #eee;
+    --paper-border: #bbb; --paper-muted: #595959; --paper-mark: #fff3a0; --paper-error: #b00000;
+    --hl-comment: #5a6370; --hl-keyword: #a71d5d; --hl-string: #0b6e4f; --hl-number: #0044aa;
+  }
+  html, body, html.pdf-mode, html.pdf-mode body { background: #fff !important; color: #000; }
+  #edit-btn, #pdfbar, #paper-banner { display: none !important; }
+  #content { max-width: none; padding: 0; border: 0 !important; }
+  #content a { text-decoration: underline; }
+  #content pre, #content blockquote, #content table, #content figure, #content .tex-fl { break-inside: avoid; }
+  #content h1, #content h2, #content h3, #content h4 { break-after: avoid; }
+  #pdf { padding: 0; gap: 0; }
+  #pdf .pdf-page { box-shadow: none; break-after: page; }
+}

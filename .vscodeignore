@@ -2,6 +2,8 @@
 **/*.map
 **/*.md
 !README.md
+!CHANGELOG.md
+!media/walkthrough/**
 **/test/**
 **/tests/**
 **/*.d.ts

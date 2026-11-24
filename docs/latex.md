@@ -36,11 +36,13 @@ How it works:
 
 **Engine choice.** `fontspec`, `unicode-math`, `xeCJK`, `polyglossia` or `% !TEX program = xelatex` select XeLaTeX. `luacode`, `\directlua`, `luatexja` or `% !TEX program = lualatex` select LuaLaTeX. Everything else uses pdfLaTeX. Bibliographies use BibTeX as latexmk does. For biblatex with biber, install biber or keep a current `.bbl` next to the root.
 
-**Rebuilds** run when you save a `.tex`, `.sty`, `.cls` or `.bib` file in the root's folder tree. The status bar shows `TeX: compiling...`, `TeX: ok 2.3 s` or `TeX: error`. The first error appears as a red banner over the last good PDF, and the full log path goes to the **Paper MD** output channel.
+**Rebuilds** run when you save a `.tex`, `.sty`, `.cls` or `.bib` file in the root's folder tree. The status bar shows `TeX: compiling...`, `TeX: ok 2.3 s` or `TeX: error`. Files that were skipped while copying (too large, too deep or unreadable) are listed in the banner and the **Paper MD** output. The first error appears as a red banner over the last good PDF, and the full log path goes to the **Paper MD** output channel.
 
 **Requirements**
 
-- TeX must be installed on your **local** machine, not the remote host. On macOS, BasicTeX installs to `/Library/TeX/texbin`, which spawned processes do not have on `PATH`, so set `paperMd.tex.texPath` if TeX lives elsewhere.
+- TeX must be installed on your **local** machine, not the remote host: MacTeX or BasicTeX on macOS, MiKTeX or TeX Live on Windows, `sudo apt install texlive-full latexmk` on Linux.
+- `paperMd.tex.texPath` is empty by default, which means auto-detect for your platform (macOS: `/Library/TeX/texbin`; Linux and Windows: the standard `PATH`). Set it only if TeX lives somewhere unusual. It is read from user settings only.
+- Compile mode is disabled in untrusted workspaces. Trust the workspace to use it.
 - A missing package shows `Missing package x.sty. Install with: sudo tlmgr install x`. With BasicTeX, `tlmgr search --global --file x.sty` finds the package name.
 - Disk use is one local copy of the root's folder tree (up to `paperMd.tex.maxMirrorMB`) plus build files, per root. Delete the extension's `globalStorage` folder to clear them.
 - LaTeX Workshop, if installed, may also build on save. The builds use different folders and do not clash, but they use CPU twice.
@@ -53,4 +55,9 @@ How it works:
 % !TEX def = \def\letterRecipient{letters/acme_recipient}
 ```
 
-Compile mode passes them to latexmk with `-usepretex`. If a template stops with an error asking for such definitions, the banner says the template needs arguments and shows this syntax.
+Compile mode writes them into a generated wrapper file in its local copy and compiles that, so the definitions never pass through a command line or shell. If a template stops with an error asking for such definitions, the banner says the template needs arguments and shows this syntax.
+
+## Limits and safety
+
+- **Blocked paths.** The preview does not read files by absolute path, `~`, a drive letter, or more than two `..` levels above the root. Such an `\input`, `\includegraphics` or `\graphicspath` shows a gray "blocked path" note. Use paths relative to the project.
+- **Size and time limits.** A file that expands to a very large result, or takes unusually long to convert, stops with a gray notice instead of freezing the editor. Split the file or simplify the macro that causes it.

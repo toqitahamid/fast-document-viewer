@@ -1,7 +1,7 @@
 {
   "name": "fast-document-viewer",
-  "version": "0.8.0",
-  "description": "Fast, efficient viewer for Markdown, PDF, HTML and LaTeX, built for Remote-SSH.",
+  "version": "0.8.1",
+  "description": "%extension.description%",
   "main": "./extension.js",
   "license": "MIT",
   "dependencies": {
@@ -11,7 +11,7 @@
     "markdown-it": "^14.3.3",
     "markdown-it-task-lists": "^2.1.1"
   },
-  "displayName": "Fast Document Viewer",
+  "displayName": "%extension.displayName%",
   "publisher": "toqitahamid",
   "repository": {
     "type": "git",
@@ -19,16 +19,16 @@
   },
   "keywords": [
     "markdown",
-    "viewer",
-    "preview",
-    "katex",
-    "paper",
-    "remote-ssh",
     "pdf",
     "html",
     "latex",
     "tex",
-    "document viewer"
+    "viewer",
+    "preview",
+    "remote-ssh",
+    "katex",
+    "document",
+    "paper"
   ],
   "engines": {
     "vscode": "^1.85.0"
@@ -52,7 +52,7 @@
     "customEditors": [
       {
         "viewType": "paperMd.viewer",
-        "displayName": "Fast Document Viewer",
+        "displayName": "%customEditor.displayName%",
         "priority": "option",
         "selector": [
           {
@@ -66,81 +66,123 @@
     ],
     "commands": [
       {
-        "command": "paperMd.openAsText",
-        "title": "Paper MD: Open as Text",
-        "icon": "$(edit)",
-        "shortTitle": "Edit"
-      },
-      {
-        "command": "paperMd.openFollowPanel",
-        "title": "Paper MD: Open Follow Panel"
-      },
-      {
-        "command": "paperMd.recompileTex",
-        "title": "Paper MD: Recompile TeX"
-      },
-      {
-        "command": "paperMd.openTexLog",
-        "title": "Paper MD: Open TeX Log"
+        "command": "paperMd.enableAll",
+        "title": "%command.enableAll%",
+        "category": "%command.category%"
       },
       {
         "command": "paperMd.showPaper",
-        "title": "Paper MD: Show Paper View",
-        "shortTitle": "Paper View",
+        "title": "%command.showPaper%",
+        "category": "%command.category%",
+        "shortTitle": "%command.showPaper.short%",
         "icon": "$(open-preview)"
+      },
+      {
+        "command": "paperMd.openFollowPanel",
+        "title": "%command.openFollowPanel%",
+        "category": "%command.category%"
+      },
+      {
+        "command": "paperMd.openAsText",
+        "title": "%command.openAsText%",
+        "category": "%command.category%",
+        "shortTitle": "%command.openAsText.short%",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "paperMd.recompileTex",
+        "title": "%command.recompileTex%",
+        "category": "%command.category%"
+      },
+      {
+        "command": "paperMd.openTexLog",
+        "title": "%command.openTexLog%",
+        "category": "%command.category%"
       }
     ],
     "configuration": {
       "title": "Fast Document Viewer",
       "properties": {
-        "paperMd.customCss": {
-          "type": "string",
-          "default": "",
-          "description": "CSS appended after the built-in paper CSS."
-        },
         "paperMd.followPanel.autoOpen": {
           "type": "boolean",
           "default": false,
-          "description": "Open the Paper MD follow panel automatically when a Markdown text editor becomes active. The panel reuses one webview, so switching files is fast."
-        },
-        "paperMd.pdf.enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show .pdf files in the Paper MD follow panel instead of a new tab. Needs paperMd.followPanel.replaceTextTab and the editor association \"*.pdf\": \"default\". The PDF tab is closed once the panel shows the file."
-        },
-        "paperMd.html.enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show .html and .htm files in the Paper MD follow panel instead of as text. Needs paperMd.followPanel.replaceTextTab. The page runs in a sandboxed iframe and reloads when you save the file."
+          "order": 1,
+          "description": "%setting.paperMd.followPanel.autoOpen.desc%",
+          "markdownDescription": "%setting.paperMd.followPanel.autoOpen.md%"
         },
         "paperMd.followPanel.replaceTextTab": {
           "type": "boolean",
           "default": false,
-          "description": "Show the follow panel in place of the Markdown text tab (one tab, no side-by-side view). The text tab is closed; use the \"Edit as text\" button to read the file as text."
+          "order": 2,
+          "description": "%setting.paperMd.followPanel.replaceTextTab.desc%",
+          "markdownDescription": "%setting.paperMd.followPanel.replaceTextTab.md%"
+        },
+        "paperMd.pdf.enabled": {
+          "type": "boolean",
+          "default": false,
+          "order": 3,
+          "description": "%setting.paperMd.pdf.enabled.desc%",
+          "markdownDescription": "%setting.paperMd.pdf.enabled.md%"
+        },
+        "paperMd.html.enabled": {
+          "type": "boolean",
+          "default": false,
+          "order": 4,
+          "description": "%setting.paperMd.html.enabled.desc%",
+          "markdownDescription": "%setting.paperMd.html.enabled.md%"
         },
         "paperMd.tex.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Show .tex files as a rendered approximation of the compiled paper in the Paper MD follow panel instead of as text. Needs paperMd.followPanel.replaceTextTab. No TeX engine is used: \\input files, math, figures, tables and references are converted to HTML. Use the \"Edit as text\" button to read the source."
+          "order": 5,
+          "description": "%setting.paperMd.tex.enabled.desc%",
+          "markdownDescription": "%setting.paperMd.tex.enabled.md%"
         },
         "paperMd.tex.mode": {
           "type": "string",
+          "default": "html",
+          "order": 6,
+          "description": "%setting.paperMd.tex.mode.desc%",
+          "markdownDescription": "%setting.paperMd.tex.mode.md%",
           "enum": [
             "html",
             "compile"
           ],
-          "default": "html",
-          "description": "How .tex files are shown (needs paperMd.tex.enabled). \"html\": converted to HTML without a TeX engine. \"compile\": the root document is compiled with latexmk on your local machine and the real PDF is shown; it is recompiled when you save a .tex, .sty, .cls or .bib file."
+          "enumDescriptions": [
+            "%setting.tex.mode.html%",
+            "%setting.tex.mode.compile%"
+          ]
         },
         "paperMd.tex.texPath": {
           "type": "string",
-          "default": "/Library/TeX/texbin",
-          "description": "Folder with latexmk and the TeX engines. It is put in front of PATH when compiling."
+          "default": "",
+          "order": 7,
+          "description": "%setting.paperMd.tex.texPath.desc%",
+          "markdownDescription": "%setting.paperMd.tex.texPath.md%",
+          "scope": "machine"
         },
         "paperMd.tex.maxMirrorMB": {
           "type": "number",
           "default": 200,
-          "description": "Compile mode copies the root's folder (TeX-related files only) to local disk. Stop and report when the copy would be larger than this many MB."
+          "order": 8,
+          "description": "%setting.paperMd.tex.maxMirrorMB.desc%",
+          "markdownDescription": "%setting.paperMd.tex.maxMirrorMB.md%",
+          "minimum": 1
+        },
+        "paperMd.allowRemoteImages": {
+          "type": "boolean",
+          "default": true,
+          "order": 9,
+          "description": "%setting.paperMd.allowRemoteImages.desc%",
+          "markdownDescription": "%setting.paperMd.allowRemoteImages.md%"
+        },
+        "paperMd.customCss": {
+          "type": "string",
+          "default": "",
+          "order": 10,
+          "description": "%setting.paperMd.customCss.desc%",
+          "markdownDescription": "%setting.paperMd.customCss.md%",
+          "scope": "machine"
         }
       }
     },
@@ -163,11 +205,83 @@
           "when": "resourceExtname =~ /^\\.(md|markdown|tex|html?)$/"
         }
       ]
-    }
+    },
+    "walkthroughs": [
+      {
+        "id": "paperMd.gettingStarted",
+        "title": "%walkthrough.title%",
+        "description": "%walkthrough.description%",
+        "steps": [
+          {
+            "id": "enable",
+            "title": "%walkthrough.enable.title%",
+            "description": "%walkthrough.enable.desc%",
+            "media": {
+              "markdown": "media/walkthrough/enable.md"
+            },
+            "completionEvents": [
+              "onCommand:paperMd.enableAll"
+            ]
+          },
+          {
+            "id": "open",
+            "title": "%walkthrough.open.title%",
+            "description": "%walkthrough.open.desc%",
+            "media": {
+              "markdown": "media/walkthrough/open.md"
+            },
+            "completionEvents": [
+              "onStepSelected"
+            ]
+          },
+          {
+            "id": "sides",
+            "title": "%walkthrough.sides.title%",
+            "description": "%walkthrough.sides.desc%",
+            "media": {
+              "markdown": "media/walkthrough/sides.md"
+            },
+            "completionEvents": [
+              "onStepSelected"
+            ]
+          },
+          {
+            "id": "compile",
+            "title": "%walkthrough.compile.title%",
+            "description": "%walkthrough.compile.desc%",
+            "media": {
+              "markdown": "media/walkthrough/compile.md"
+            },
+            "completionEvents": [
+              "onStepSelected"
+            ]
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
     "test": "node --test test/*.test.js",
     "check": "node --check extension.js && node --check src/render.js && node --check src/tex.js && node --check src/texroot.js && node --check src/texcompile.js && node --check media/main.js",
     "package": "vsce package"
+  },
+  "homepage": "https://github.com/toqitahamid/fast-document-viewer#readme",
+  "bugs": {
+    "url": "https://github.com/toqitahamid/fast-document-viewer/issues"
+  },
+  "qna": "marketplace",
+  "galleryBanner": {
+    "color": "#f4efe6",
+    "theme": "light"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "%capabilities.untrusted%",
+      "restrictedConfigurations": [
+        "paperMd.tex.mode",
+        "paperMd.tex.texPath"
+      ]
+    }
   }
 }

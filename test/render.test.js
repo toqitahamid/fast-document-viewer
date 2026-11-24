@@ -1,13 +1,13 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createRenderer, slugify } = require('../src/render');
+const { createRenderer, slugify, headingId } = require('../src/render');
 
 const render = createRenderer({ resolveImage: (s) => 'vscode-resource://x/' + s });
 
 test('smoke: full document renders every feature', () => {
   const h = render('# Title A\n\nText $a^2$ and\n\n$$\\int_0^1 x\\,dx$$\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n![f](fig.png)\n\n```python\nprint(1)\n```\n\n- [x] done\n- [ ] todo\n\n[s](#title-a) <b>x</b> https://a.com\n');
-  for (const k of ['id="title-a"', 'katex', '<table', 'vscode-resource://x/fig.png', 'hljs', 'task-list']) {
+  for (const k of ['id="h-title-a"', 'katex', '<table', 'vscode-resource://x/fig.png', 'hljs', 'task-list']) {
     assert.ok(h.includes(k), 'missing ' + k);
   }
 });
@@ -61,12 +61,31 @@ test('raw HTML is kept, linkify works', () => {
 
 test('heading ids: slug, duplicates get suffix, empty falls back to "section"', () => {
   const h = render('# Hello World\n\n# Hello World\n\n# !!!\n');
-  assert.ok(h.includes('id="hello-world"'));
-  assert.ok(h.includes('id="hello-world-1"'));
-  assert.ok(h.includes('id="section"'));
+  assert.ok(h.includes('id="h-hello-world"'));
+  assert.ok(h.includes('id="h-hello-world-1"'));
+  assert.ok(h.includes('id="h-section"'));
 });
 
 test('slugify', () => {
   assert.equal(slugify('  Hello, World! '), 'hello-world');
   assert.equal(slugify('Ünï cödé 2'), 'ünï-cödé-2');
+});
+
+test('heading ids are prefixed so they cannot collide with viewer ids', () => {
+  const h = render('# Content\n\n# PDF\n');
+  assert.ok(h.includes('id="h-content"') && h.includes('id="h-pdf"'));
+  assert.ok(!/id="(content|pdf)"/.test(h));
+  assert.equal(headingId('x'), 'h-x');
+});
+
+test('raw HTML <img> relative src is resolved; absolute kept; attrs escaped', () => {
+  const h = render('<img src="a/b.png" width="10">\n\ntext <img alt="q" src=\'c.png\'> more\n');
+  assert.ok(h.includes('src="vscode-resource://x/a/b.png"'));
+  assert.ok(h.includes('src="vscode-resource://x/c.png"'));
+  for (const s of ['https://e.com/a.png', 'data:image/png;base64,AAAA', 'vscode-webview://q/a.png']) {
+    assert.ok(render(`<img src="${s}">`).includes(`src="${s}"`), s);
+  }
+  const evil = createRenderer({ resolveImage: () => 'x" onerror="alert(1)' })('<img src="a.png">');
+  assert.ok(!evil.includes('onerror="alert'), evil);
+  assert.ok(render('<p>no image here</p>').includes('<p>no image here</p>'));
 });

@@ -4,6 +4,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # @vscode/markdown-it-katex supports katex ^0.16 only; a newer katex installs a second copy and mismatches the bundled CSS.
+      - dependency-name: katex
+        versions: [">=0.17.0"]
   - package-ecosystem: github-actions
     directory: /
     schedule:

@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.9.2]
+
+### Fixed
+
+- Back to KaTeX 0.16. The math plugin supports only 0.16, and KaTeX 0.19 installed a second copy that made the package 4 MB larger and mismatched the stylesheet. Dependabot now skips KaTeX 0.17 and newer.
+
 ## [0.9.1]
 
 ### Fixed

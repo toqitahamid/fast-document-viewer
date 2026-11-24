@@ -27,7 +27,7 @@ jobs:
           size=$(stat -c %s fast-document-viewer.vsix)
           echo "vsix size: $size bytes"
           test "$size" -lt 5000000
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: vsix
           path: fast-document-viewer.vsix

@@ -6,6 +6,36 @@
 //   opts.resolveImage(rel)  sync, webview URL of an image file, or null
 //   opts.baseName           main file name without extension (for .bbl and .aux)
 const katex = require('katex');
+const { AsyncLocalStorage } = require('node:async_hooks');
+
+// ---------- work budget ----------
+// Hostile or broken input must never freeze the extension host. Scanners charge the characters they walk over;
+// when a run spends far more than its source size justifies (or too much wall time), the conversion is abandoned.
+const BAIL = Symbol('bail');
+const als = new AsyncLocalStorage(); // the budget of the conversion in progress; overlapping conversions each keep their own across awaits
+const newBudget = (len) => ({ n: 0, max: 300 * len + 3e7, next: 1e6, deadline: Date.now() + 3000 + len / 250 });
+const bail = (why) => { const e = new Error(why); e[BAIL] = true; return e; };
+const isBail = (e) => !!(e && e[BAIL]);
+function work(k) {
+  const g = als.getStore();
+  if (!g) return;
+  g.n += k;
+  if (g.n > g.max) throw bail('the file needs too much work to convert');
+  if (g.n > g.next) { g.next = g.n + 1e6; if (Date.now() > g.deadline) throw bail('the conversion took too long'); }
+}
+const dict = (o) => Object.assign(Object.create(null), o); // lookup tables keyed by user text: no 'constructor'
+const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+// A path from the document must stay inside the root directory tree plus at most two parent levels.
+function safeRel(p) {
+  p = String(p);
+  if (/^\\[A-Za-z@]+$/.test(p)) return p; // an unexpanded macro name, not a path: simply not found
+  p = p.replace(/\\/g, '/');
+  if (p.includes('\0') || /^(\/|~|[A-Za-z]:)/.test(p)) return null;
+  const n = require('path').posix.normalize(p);
+  let ups = 0;
+  for (const seg of n.split('/')) { if (seg === '..') ups++; else break; }
+  return ups > 2 ? null : n;
+}
 
 // ---------- string helpers ----------
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -23,8 +53,9 @@ function readGroup(s, i) {
     const c = s[j];
     if (c === '\\') { j++; continue; }
     if (c === '{') depth++;
-    else if (c === '}') { depth--; if (depth === 0) return { text: s.slice(i + 1, j), end: j + 1 }; }
+    else if (c === '}') { depth--; if (depth === 0) { work(j - i); return { text: s.slice(i + 1, j), end: j + 1 }; } }
   }
+  work(s.length - i);
   return { text: s.slice(i + 1), end: s.length };
 }
 
@@ -36,8 +67,9 @@ function readBracket(s, i) {
     if (c === '\\') { j++; continue; }
     if (c === '{') depth++;
     else if (c === '}') depth--;
-    else if (c === ']' && depth <= 0) return { text: s.slice(i + 1, j), end: j + 1 };
+    else if (c === ']' && depth <= 0) { work(j - i); return { text: s.slice(i + 1, j), end: j + 1 }; }
   }
+  work(s.length - i);
   return null;
 }
 
@@ -89,6 +121,7 @@ function splitAt(s, finder) {
   out.push(s.slice(last));
   return out;
 }
+const ROW_OPT = /^\[[\s\d.,+\-a-zA-Z\\]*\]/;
 const rowSep = (s, i) => {
   if (s[i] !== '\\') return 0;
   if (s.startsWith('\\tabularnewline', i)) return 15;
@@ -96,7 +129,7 @@ const rowSep = (s, i) => {
   let j = i + 2;
   if (s[j] === '*') j++;
   let k = j; while (k < s.length && (s[k] === ' ' || s[k] === '\t')) k++;
-  if (s[k] === '[') { const b = readBracket(s, k); if (b && /^[\s\d.,+\-a-zA-Z\\]*$/.test(b.text)) j = b.end; }
+  if (s[k] === '[') { const b = ROW_OPT.exec(s.slice(k, k + 80)); if (b) j = k + b[0].length; } // \\[2pt]: short, no braces (never scans far)
   return j - i;
 };
 const cellSep = (s, i) => (s[i] === '&' ? 1 : 0);
@@ -105,7 +138,14 @@ const bibitemSep = (s, i) => (s[i] === '\\' && s.startsWith('\\bibitem', i) && !
 
 class AR { // argument reader over a string
   constructor(s) { this.s = s; this.i = 0; }
-  opt() { const j = skipWs(this.s, this.i); if (this.s[j] === '[') { const b = readBracket(this.s, j); if (b) { this.i = b.end; return b.text; } } return null; }
+  opt() {
+    const j = skipWs(this.s, this.i);
+    if (this.s[j] === '[') {
+      if (this.last === undefined) this.last = this.s.lastIndexOf(']');
+      if (j < this.last) { const b = readBracket(this.s, j); if (b) { this.i = b.end; return b.text; } }
+    }
+    return null;
+  }
   arg() { const j = skipWs(this.s, this.i); if (this.s[j] === '{') { const g = readGroup(this.s, j); this.i = g.end; return g.text; } return null; }
   rest() { return this.s.slice(this.i); }
 }
@@ -113,15 +153,15 @@ class AR { // argument reader over a string
 const needsBlock = (str) => /\\begin\s*\{|\\(?:section|subsection|subsubsection|paragraph|maketitle|bibliography|item|caption|chapter|appendix)(?![a-zA-Z])|\n[ \t]*\n/.test(str);
 
 // ---------- colors ----------
-const NAMED = {
+const NAMED = dict({
   black: [0, 0, 0], white: [255, 255, 255], red: [255, 0, 0], green: [0, 255, 0], blue: [0, 0, 255], cyan: [0, 255, 255],
   magenta: [255, 0, 255], yellow: [255, 255, 0], gray: [128, 128, 128], grey: [128, 128, 128], orange: [255, 128, 0],
   purple: [191, 0, 64], brown: [191, 128, 64], olive: [128, 128, 0], pink: [255, 191, 191], teal: [0, 128, 128],
   violet: [128, 0, 191], lime: [191, 255, 0], darkgray: [64, 64, 64], lightgray: [191, 191, 191],
-};
+});
 function colorRgb(st, name) {
   name = String(name).trim();
-  return st.colors.get(name) || NAMED[name] || null;
+  return st.colors.get(name) || (hasOwn(NAMED, name) ? NAMED[name] : null);
 }
 function cssColor(st, spec) {
   if (!spec) return null;
@@ -150,8 +190,8 @@ function defineColor(st, name, model, spec) {
 }
 
 // ---------- accents and symbols ----------
-const ACC = { "'": '́', '`': '̀', '^': '̂', '"': '̈', '~': '̃', '=': '̄', '.': '̇', u: '̆', v: '̌', H: '̋', c: '̧', k: '̨', r: '̊', d: '̣', b: '̱' };
-const SYM = {
+const ACC = dict({ "'": '́', '`': '̀', '^': '̂', '"': '̈', '~': '̃', '=': '̄', '.': '̇', u: '̆', v: '̌', H: '̋', c: '̧', k: '̨', r: '̊', d: '̣', b: '̱' });
+const SYM = dict({
   onedot: '.', eg: 'e.g.', ie: 'i.e.', etal: 'et al.', cf: 'cf.', etc: 'etc.', vs: 'vs.', ldots: '…', dots: '…', textellipsis: '…', LaTeX: 'LaTeX', TeX: 'TeX', BibTeX: 'BibTeX', S: '§', P: '¶',
   dag: '†', ddag: '‡', textdagger: '†', textdaggerdbl: '‡', copyright: '©', textregistered: '®',
   texttrademark: '™', ss: 'ß', o: 'ø', O: 'Ø', ae: 'æ', AE: 'Æ', oe: 'œ', OE: 'Œ',
@@ -162,7 +202,7 @@ const SYM = {
   textunderscore: '_', textdollar: '$', textpercent: '%', textampersand: '&amp;', textsection: '§', pounds: '£', euro: '€',
   quad: ' ', qquad: '  ', enspace: ' ', thinspace: ' ', hfill: ' ', ',': ' ', ';': ' ', ':': ' ', ' ': ' ',
   '%': '%', '&': '&amp;', _: '_', '#': '#', $: '$', '{': '{', '}': '}', '!': '', '/': '', '-': '', '@': '', '|': '|',
-};
+});
 const IGN2 = { newsavebox: 'a',  setmainfont: 'aoo', setsansfont: 'aoo', setmonofont: 'aoo', fontspec: 'aoo', newfontfamily: 'aaoo', titleformat: '*aaaaao', titlespacing: '*aaaa', Needspace: '*a', needspace: 'a', urlstyle: 'a', AtBeginEnvironment: 'aa', AtEndEnvironment: 'aa', setcolumnwidth: 'a', columnratio: 'a', setmathfont: 'aoo', newfontface: 'aaoo', defaultfontfeatures: 'oa', addfontfeatures: 'a' };
 const XSPACE = new Set(['onedot', 'eg', 'ie', 'etal', 'cf', 'etc', 'vs']);
 const NOOP = new Set(['hfil', 'enskip', 'justifying', 'titlerule', 'Justifying', 'undefined', 'raggedright', 'noindent', 'indent', 'newpage', 'clearpage', 'cleardoublepage',
@@ -176,7 +216,7 @@ const NOOP = new Set(['hfil', 'enskip', 'justifying', 'titlerule', 'Justifying',
   'footnotemark', 'sffamily', 'maketitle_', 'clubpenalty', 'widowpenalty', 'frontmatter', 'mainmatter', 'backmatter', 'printbibliography_',
   'hyphenpenalty', 'tolerance', 'emergencystretch', 'baselineskip', 'parindent', 'parskip', 'IEEEpeerreviewmaketitle', 'iccvfinalcopy']);
 // name -> argument spec: '*' star, 'o' optional, 'a' mandatory
-const IGN = {
+const IGN = dict({
   usepackage: 'oa', RequirePackage: 'oa', documentclass: 'oa', setlength: 'aa', addtolength: 'aa', setcounter: 'aa', addtocounter: 'aa',
   stepcounter: 'a', pagestyle: 'a', thispagestyle: 'a', bibliographystyle: 'a', hypersetup: 'a', setlist: 'oa', crefname: 'aaa',
   Crefname: 'aaa', definecolor: 'aaa', colorlet: 'aa', graphicspath: 'a', DeclareGraphicsExtensions: 'a', newlength: 'a',
@@ -189,8 +229,8 @@ const IGN = {
   pdfoutput: '', pdfminorversion: '', setstretch: 'a', hyphenation: 'a', linespread: 'a', ifthenelse_: 'a', IfFileExists_: 'a',
   icmltitlerunning: 'a', icmlsetsymbol: 'aa', icmlkeywords: 'a', icmlaffiliation: 'aa', icmlcorrespondingauthor: 'aa', icmlauthor: 'aa',
   icmlEqualContribution: '', sisetup: 'a', addbibresource: 'a', cvprfinalcopy: '', nocite_: 'a', vphantom: 'a', hphantom: 'a',
-};
-const UNIT_PX = { pt: 1.33, bp: 1.33, em: 16, ex: 8, cm: 37.8, mm: 3.78, in: 96, pc: 16, dd: 1.4, cc: 16, sp: 0, mu: 0.9 };
+});
+const UNIT_PX = dict({ pt: 1.33, bp: 1.33, em: 16, ex: 8, cm: 37.8, mm: 3.78, in: 96, pc: 16, dd: 1.4, cc: 16, sp: 0, mu: 0.9 });
 const DIMRE = /^\s*([-+]?\s*(?:\d+\.?\d*|\.\d+)?)\s*(pt|em|ex|cm|mm|in|bp|sp|pc|dd|cc|mu|\\(?:wd|ht|dp)\s*\\[A-Za-z@]+|\\[A-Za-z@]+)(?:\s+plus\s*[-+]?[\d.]*\s*(?:fil+|pt|em|ex|cm|mm|in|\\[A-Za-z@]+))?(?:\s+minus\s*[-+]?[\d.]*\s*(?:fil+|pt|em|ex|cm|mm|in|\\[A-Za-z@]+))?/;
 function dimPx(m) {
   const num = m[1].replace(/\s/g, '');
@@ -202,10 +242,10 @@ function dimPx(m) {
 function parseDim(str) { const m = DIMRE.exec(String(str)); return m ? dimPx(m) : 0; }
 function consumeDim(r) { const m = DIMRE.exec(r.s.slice(r.i, r.i + 160)); if (!m) return 0; r.i += m[0].length; return dimPx(m); }
 const spaceSpan = (px) => (px > 0.5 ? '<span class="tex-sp" style="width:' + Math.min(Math.round(px), 300) + 'px"></span>' : '');
-const FA = { envelope: '\u2709', phone: '\u260e', mobile: '\u260e', linkedin: 'in', linkedinin: 'in', github: 'gh', gitlab: 'gl', twitter: 'tw', globe: '\ud83c\udf10', globeamericas: '\ud83c\udf10', link: '\ud83d\udd17', externallink: '\u2197', graduationcap: '\ud83c\udf93', mapmarker: '\ud83d\udccd', mapmarkeralt: '\ud83d\udccd', mappin: '\ud83d\udccd', home: '\u2302', calendar: '\ud83d\udcc5', user: '\ud83d\udc64', building: '\ud83c\udfe2', briefcase: '\ud83d\udcbc', book: '\ud83d\udcd6', google: 'G', googlescholar: 'GS', orcid: 'iD', star: '\u2605', check: '\u2713' };
+const FA = dict({ envelope: '\u2709', phone: '\u260e', mobile: '\u260e', linkedin: 'in', linkedinin: 'in', github: 'gh', gitlab: 'gl', twitter: 'tw', globe: '\ud83c\udf10', globeamericas: '\ud83c\udf10', link: '\ud83d\udd17', externallink: '\u2197', graduationcap: '\ud83c\udf93', mapmarker: '\ud83d\udccd', mapmarkeralt: '\ud83d\udccd', mappin: '\ud83d\udccd', home: '\u2302', calendar: '\ud83d\udcc5', user: '\ud83d\udc64', building: '\ud83c\udfe2', briefcase: '\ud83d\udcbc', book: '\ud83d\udcd6', google: 'G', googlescholar: 'GS', orcid: 'iD', star: '\u2605', check: '\u2713' });
 Object.assign(IGN, IGN2);
 const DIM = /^\s*[-+]?[\d.]*\s*(?:pt|em|ex|cm|mm|in|bp|sp|pc|dd|cc|\\[a-zA-Z]+)(?:\s+(?:plus|minus)\s*[-+]?[\d.]+\s*(?:pt|em|ex|cm|mm|in|fil+|\\[a-zA-Z]+))*/;
-const THEOREMS = { theorem: 'Theorem', lemma: 'Lemma', proposition: 'Proposition', corollary: 'Corollary', definition: 'Definition', remark: 'Remark', example: 'Example', claim: 'Claim', conjecture: 'Conjecture', assumption: 'Assumption', observation: 'Observation', notation: 'Notation', problem: 'Problem', fact: 'Fact', property: 'Property', hypothesis: 'Hypothesis', note: 'Note' };
+const THEOREMS = dict({ theorem: 'Theorem', lemma: 'Lemma', proposition: 'Proposition', corollary: 'Corollary', definition: 'Definition', remark: 'Remark', example: 'Example', claim: 'Claim', conjecture: 'Conjecture', assumption: 'Assumption', observation: 'Observation', notation: 'Notation', problem: 'Problem', fact: 'Fact', property: 'Property', hypothesis: 'Hypothesis', note: 'Note' });
 const SILENT_ENVS = new Set(['small', 'footnotesize', 'scriptsize', 'tiny', 'large', 'Large', 'normalsize', 'spacing', 'singlespace', 'doublespace', 'onehalfspace', 'multicols', 'appendices', 'subequations', 'titlepage', 'raggedright', 'raggedleft', 'sloppypar', 'document', 'minipage_', 'adjustwidth', 'framed', 'mdframed', 'tcolorbox', 'center_', 'figurebox', 'threeparttable', 'tablenotes', 'landscape', 'sidewaystable_', 'otherlanguage', 'CJK', 'bibunit', 'table_']);
 const GFX_RASTER = /^(png|jpe?g|gif|svg|webp|bmp)$/i;
 const GFX_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'pdf', 'eps'];
@@ -214,9 +254,16 @@ const GFX_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'pdf', 'eps'];
 // Verbatim blocks and \verb become placeholders, so comments and macros do not touch them.
 function extractVerbatim(text, st) {
   let out = ''; let i = 0;
+  // Is there an unescaped % earlier on the line of idx? The line start, line end and first % are cached per line.
+  let lnStart = -1; let lnEnd = -1; let lnPct = -1;
   const lineHasComment = (idx) => {
-    const ls = text.lastIndexOf('\n', idx) + 1;
-    return /(^|[^\\])(\\\\)*%/.test(text.slice(ls, idx));
+    if (idx < lnStart || idx > lnEnd || lnStart < 0) {
+      lnStart = text.lastIndexOf('\n', idx) + 1;
+      lnEnd = text.indexOf('\n', idx); if (lnEnd < 0) lnEnd = text.length;
+      lnPct = -1;
+      for (let j = lnStart; j < lnEnd; j++) { const c = text.charCodeAt(j); if (c === 92) j++; else if (c === 37) { lnPct = j; break; } }
+    }
+    return lnPct >= 0 && lnPct < idx;
   };
   const re = /\\begin\{(verbatim\*?|Verbatim\*?|lstlisting|minted|alltt|comment)\}|\\(verb\*?|lstinline)(?![A-Za-z])/g;
   let m;
@@ -239,6 +286,10 @@ function extractVerbatim(text, st) {
       // \verb|text| or \lstinline{text}
       let j = re.lastIndex;
       if (text[j] === '*') j++;
+      if (m[2] === 'lstinline' && text[j] === '[') { // \lstinline[language=C]{...}: skip the options
+        const e2 = text.slice(j, j + 200).indexOf(']');
+        if (e2 > 0 && !text.slice(j, j + e2).includes('\n')) j += e2 + 1;
+      }
       const d = text[j];
       if (!d || /\s/.test(d)) continue;
       const close = d === '{' ? '}' : d;
@@ -254,6 +305,20 @@ function extractVerbatim(text, st) {
   return out + text.slice(i);
 }
 
+// End (exclusive) of the braced first argument of \url, \href or \nolinkurl whose name starts at line[j], or -1.
+// A % inside a URL is data, not a comment.
+const URL_CMD = /\\(?:url|href|nolinkurl)\s*\{/y;
+function urlArgEnd(line, j) {
+  URL_CMD.lastIndex = j;
+  if (!URL_CMD.test(line)) return -1;
+  let depth = 0;
+  const stop = Math.min(line.length, j + 3000); // longer than any real URL: also keeps an unclosed \url{ run linear
+  for (let k = URL_CMD.lastIndex - 1; k < stop; k++) {
+    const c = line.charCodeAt(k);
+    if (c === 92) k++; else if (c === 123) depth++; else if (c === 125 && --depth === 0) return k + 1;
+  }
+  return -1;
+}
 function stripComments(text) {
   const lines = text.split('\n');
   const out = [];
@@ -264,7 +329,7 @@ function stripComments(text) {
     let idx = -1;
     for (let j = 0; j < line.length; j++) {
       const c = line.charCodeAt(j);
-      if (c === 92) j++; else if (c === 37) { idx = j; break; }
+      if (c === 92) { const u = urlArgEnd(line, j); if (u > 0) j = u - 1; else j++; } else if (c === 37) { idx = j; break; }
     }
     if (idx < 0) { out.push(line); continue; }
     const kept = line.slice(0, idx);
@@ -280,7 +345,8 @@ function stripComments(text) {
 async function flatten(text, st, depth) {
   const re = /\\(?:newif|input|include|subfile|subfileinclude|IfFileExists|if[A-Za-z@]*|else|fi|[A-Za-z@]+(?:true|false))(?![A-Za-z@])/g;
   const parts = []; let last = 0; let m;
-  const active = () => st.cond.every((c) => c.cur);
+  // each frame keeps the number of dead frames up to and including itself, so this is O(1) however deep the nesting
+  const active = () => !st.cond.length || st.cond[st.cond.length - 1].dead === 0;
   while ((m = re.exec(text))) {
     const name = m[0].slice(1);
     const live = active();
@@ -314,9 +380,9 @@ async function flatten(text, st, depth) {
       if (g1.text.includes('#')) continue;
       emitUntil(); re.lastIndex = g3.end; last = g3.end;
       if (live) {
-        const f = g1.text.trim().replace(/^\.\//, '');
+        const f = safeRel(g1.text.trim().replace(/^\.\//, ''));
         let ok = false;
-        const cands = /\.[A-Za-z0-9]{1,5}$/.test(f) ? [f] : [f + '.tex', f];
+        const cands = f == null ? [] : /\.[A-Za-z0-9]{1,5}$/.test(f) ? [f] : [f + '.tex', f];
         for (const c of cands) {
           try { ok = st.exists ? !!(await st.exists(c)) : typeof (await st.readFile(c)) === 'string'; } catch (e) { ok = false; }
           if (ok) break;
@@ -327,7 +393,7 @@ async function flatten(text, st, depth) {
     }
     if (name === 'else') {
       if (!st.cond.length) continue;
-      emitUntil(); st.cond[st.cond.length - 1].cur = !st.cond[st.cond.length - 1].cur; last = re.lastIndex; continue;
+      emitUntil(); const f = st.cond[st.cond.length - 1]; f.cur = !f.cur; f.dead = f.base + (f.cur ? 0 : 1); last = re.lastIndex; continue;
     }
     if (name === 'fi') {
       if (!st.cond.length) continue;
@@ -338,13 +404,14 @@ async function flatten(text, st, depth) {
       emitUntil(); if (live) st.flags.set(tf[1], tf[2] === 'true'); last = re.lastIndex; continue;
     }
     if (name.startsWith('if')) {
-      if (name === 'iff' || name === 'ifthenelse' || name === 'ifmmode' || name === 'ifx_') continue; // not a TeX conditional here
+      if (name === 'iff' || name === 'ifthenelse') continue; // not a TeX conditional here
       emitUntil();
       const f = name.slice(2);
-      let v = true;
-      if (name === 'iffalse') v = false;
+      let v = true; // \ifx, \ifnum, \ifdim, \ifdefined ...: unknown, the first branch is kept but \else and \fi still pair up
+      if (name === 'iffalse' || name === 'ifmmode') v = false; // text mode: \ifmmode M\else T\fi gives T
       else if (st.flags.has(f)) v = st.flags.get(f);
-      st.cond.push({ cur: v });
+      const base = st.cond.length ? st.cond[st.cond.length - 1].dead : 0;
+      st.cond.push({ cur: v, base, dead: base + (v ? 0 : 1) });
       last = re.lastIndex; continue;
     }
   }
@@ -360,12 +427,13 @@ async function collectLocalPackages(text, st) {
   const cut = text.indexOf('\\begin{document}');
   const head = cut >= 0 ? text.slice(0, cut) : text;
   const names = [];
-  const re = /\\(usepackage|RequirePackage|documentclass|LoadClass)\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}/g; let m;
+  const re = /\\(usepackage|RequirePackage|documentclass|LoadClass)\s*(?:\[[^\]]{0,300}\])?\s*\{([^}]{0,300})\}/g; let m;
   while ((m = re.exec(head))) for (const n of m[2].split(',')) { const t = n.trim(); if (t && !/^https?:/.test(t)) names.push([t, m[1] === 'documentclass' || m[1] === 'LoadClass' ? 'cls' : 'sty']); }
   const seen = st.pkgSeen || (st.pkgSeen = new Set());
   const todo = names.filter(([n, e]) => { const k = n + '.' + e; if (seen.has(k) || seen.size > 40) return false; seen.add(k); return true; });
   await Promise.all(todo.map(async ([n, e]) => {
     let txt = null;
+    if (safeRel(n) == null) return;
     try { txt = await st.readFile(n + '.' + e); } catch (err) { txt = null; }
     if (typeof txt !== 'string') return;
     try {
@@ -377,7 +445,7 @@ async function collectLocalPackages(text, st) {
       scanFonts(flat, st);
       const sd = /\\setcounter\s*\{secnumdepth\}\s*\{(-?\d+)\}/.exec(flat); if (sd) st.secnumdepth = parseInt(sd[1], 10);
       extractDefs(flat, st); // only the definitions matter; the rest is discarded
-    } catch (err) { /* never throw */ }
+    } catch (err) { if (isBail(err)) throw err; /* otherwise never throw */ }
   }));
 }
 function scanFonts(text, st) {
@@ -386,11 +454,14 @@ function scanFonts(text, st) {
 }
 
 async function loadInput(p, st, depth, isSubfile) {
-  const note = (msg) => '\\@texnote{' + msg + '}';
+  const note = (msg) => '\\@texnote{' + msg.replace(/[{}\\%]/g, '') + '}';
   if (depth >= st.maxDepth) return note('input depth limit: ' + p);
-  const norm = p.replace(/^\.\//, '');
+  const rel = safeRel(p.replace(/^\.\//, ''));
+  if (rel == null) return note('blocked path: ' + p);
+  const norm = rel;
+  const key = normTex(rel); // a, a.tex and ./a are one file
   const cands = /\.tex$/i.test(norm) ? [norm] : [norm + '.tex', norm];
-  if (st.stack.includes(norm)) return note('input cycle: ' + p);
+  if (st.stack.includes(key)) return note('input cycle: ' + p);
   if (st.inputCount > 400) return note('too many inputs');
   let txt = null;
   for (const c of cands) {
@@ -399,6 +470,8 @@ async function loadInput(p, st, depth, isSubfile) {
   }
   if (typeof txt !== 'string') return note('missing file: ' + p);
   st.inputCount++;
+  st.srcLen += txt.length;
+  const g = als.getStore(); if (g) g.max += 300 * txt.length;
   txt = stripComments(extractVerbatim(txt, st));
   if (st.part && !st.part.used && sameTex(norm, st.part.rel)) { // the opened section file: its live text, marked
     st.part.used = true;
@@ -408,7 +481,7 @@ async function loadInput(p, st, depth, isSubfile) {
     const b = txt.indexOf('\\begin{document}');
     if (b >= 0) { const e = txt.lastIndexOf('\\end{document}'); txt = txt.slice(b + 16, e > b ? e : undefined); }
   }
-  st.stack.push(norm);
+  st.stack.push(key);
   try { return await flatten(txt, st, depth + 1); } finally { st.stack.pop(); }
 }
 
@@ -500,7 +573,7 @@ function parseDef(kind, star, text, i, st) {
   }
   if (kind === 'crefname' || kind === 'Crefname') {
     const a = group(); const b = group(); const c = group(); if (a == null || b == null || c == null) return null;
-    st[kind === 'crefname' ? 'crefLow' : 'crefCap'][a.trim()] = [b, c]; return i;
+    st[kind === 'crefname' ? 'crefLow' : 'crefCap'][a.trim()] = [b, c]; return i; // escaped where used
   }
   if (kind === 'numberwithin') {
     const a = group(); const b = group(); if (a == null || b == null) return null;
@@ -524,7 +597,7 @@ function extractDefs(text, st) {
   const out = []; let last = 0; let m;
   while ((m = re.exec(text))) {
     let end = null;
-    try { end = parseDef(m[1], !!m[2], text, re.lastIndex, st); } catch (e) { end = null; }
+    try { end = parseDef(m[1], !!m[2], text, re.lastIndex, st); } catch (e) { if (isBail(e)) throw e; end = null; }
     if (end == null) continue;
     out.push(text.slice(last, m.index)); last = end; re.lastIndex = end;
   }
@@ -534,6 +607,12 @@ function extractDefs(text, st) {
 
 const INFLOW_DEFS = new Set(['def', 'gdef', 'edef', 'xdef', 'newcommand', 'renewcommand', 'providecommand', 'DeclareRobustCommand', 'let']);
 
+// Charge the text an expansion produces; a macro that doubles its argument must not fill the memory.
+function grow(st, k) {
+  if ((st.expTotal += k) > Math.max(2e6, 20 * st.srcLen)) throw bail('macro expansion grew too large');
+}
+const fillArgs = (st, tpl, args) => tpl.replace(/#(\d)/g, (mm, d) => { const a = args[+d - 1] != null ? args[+d - 1] : ''; grow(st, a.length); return a; });
+
 function expandMacros(text, st, depth) {
   if (depth > 25 || (!st.macros.size && !st.envs.size)) return text;
   const n = text.length;
@@ -542,6 +621,7 @@ function expandMacros(text, st, depth) {
   for (;;) {
     const j = text.indexOf('\\', i);
     if (j < 0 || j + 1 >= n) break;
+    work(1 + (j - i >> 4));
     if (!isLet(text.charCodeAt(j + 1))) { i = j + 2; continue; }
     let k = j + 1; while (k < n && isLet(text.charCodeAt(k))) k++;
     const name = text.slice(j + 1, k);
@@ -559,7 +639,7 @@ function expandMacros(text, st, depth) {
               a0 = 1;
             }
             for (let a = a0; a < env.n; a++) { const q2 = skipWs(text, p); const ar = readArg(text, q2); args.push(ar.text); p = ar.end; }
-            rep = env.begin.replace(/#(\d)/g, (mm, d) => (args[+d - 1] != null ? args[+d - 1] : ''));
+            rep = fillArgs(st, env.begin, args);
           } else rep = env.end;
           out += text.slice(last, j) + expandMacros(rep, st, depth + 1); last = p; i = p; continue;
         }
@@ -575,7 +655,7 @@ function expandMacros(text, st, depth) {
         else {
           const args = [];
           for (let a = 0; a < env.n; a++) { const q2 = skipWs(text, p); const ar = readArg(text, q2); args.push(ar.text); p = ar.end; }
-          rep = env.begin.replace(/#(\d)/g, (mm, d) => (args[+d - 1] != null ? args[+d - 1] : ''));
+          rep = fillArgs(st, env.begin, args);
         }
         out += text.slice(last, j) + expandMacros(rep, st, depth + 1); last = p; i = p; continue;
       }
@@ -584,7 +664,7 @@ function expandMacros(text, st, depth) {
       let q = k; let star = false;
       if (text[q] === '*') { star = true; q++; }
       let end = null;
-      try { end = parseDef(name, star, text, q, st); } catch (e) { end = null; }
+      try { end = parseDef(name, star, text, q, st); } catch (e) { if (isBail(e)) throw e; end = null; }
       if (end != null) { out += text.slice(last, j); last = end; i = end; continue; }
     }
     const rec = st.macros.get(name);
@@ -610,9 +690,11 @@ function expandMacros(text, st, depth) {
       keepSpace = /\\xspace\s*$/.test(rec.body) && e > p;
       p = e;
     }
+    grow(st, rec.body.length);
     let body = rec.body.replace(/#(#|\d)/g, (mm, d, off, whole) => {
       if (d === '#') return '#';
       const a = args[+d - 1] != null ? args[+d - 1] : '';
+      grow(st, a.length);
       // "\small#3" must not turn into the control word "\smallPh"
       return /^[A-Za-z@]/.test(a) && /\\[A-Za-z@]+$/.test(whole.slice(0, off)) ? ' ' + a : a;
     });
@@ -670,25 +752,25 @@ function formatBib(f) {
 }
 
 function parseAux(text, prefix, map) {
-  const re = /\\newlabel\{([^}]*)\}\{/g; let m;
+  const re = /\\newlabel\{([^}]{0,300})\}\{/g; let m;
   while ((m = re.exec(text))) {
     const g = readGroup(text, re.lastIndex - 1);
     const subs = []; let i = 0; const body = g.text;
     while (i < body.length) { if (body[i] === '{') { const s = readGroup(body, i); subs.push(s.text); i = s.end; } else i++; }
     if (subs.length) {
       const anchor = (subs[3] || '').split('.')[0].toLowerCase();
-      const type = /^sub/.test(anchor) ? 'section' : anchor || 'section';
+      const type = /^sub/.test(anchor) ? 'section' : anchor.replace(/[^a-z0-9_-]/g, '') || 'section'; // the type is printed by \\cref
       map.set(prefix + m[1], { num: subs[0], id: null, type });
     }
   }
 }
 
 // ---------- converter ----------
-const H = {};
-const ENV = {};
+const H = Object.create(null);
+const ENV = Object.create(null);
 
 class Run {
-  constructor(conv, s, inline) { this.c = conv; this.s = s; this.n = s.length; this.i = 0; this.inline = inline; this.html = ''; this.para = ''; }
+  constructor(conv, s, inline) { this.c = conv; this.s = s; this.n = s.length; this.i = 0; this.inline = inline; this.html = ''; this.para = ''; this.spAt = -1; this.noClose = null; }
   text(t) { this.para += t; }
   flush() {
     if (this.inline) return;
@@ -699,12 +781,19 @@ class Run {
       if (l && rr) { t = '<span class="tex-hl">' + l + '</span><span class="tex-hr">' + rr + '</span>'; cls = ' class="tex-hf"'; } else t = (l + ' ' + rr).trim();
     }
     if (t) this.html += '<p' + cls + '>' + t + '</p>';
-    this.para = '';
+    this.para = ''; this.spAt = -1;
   }
   block(h) { if (this.inline) this.para += h; else { this.flush(); this.html += h; } }
   ws() { while (this.i < this.n && isWs(this.s.charCodeAt(this.i))) this.i++; }
   arg() { this.ws(); if (this.i >= this.n) return ''; const a = readArg(this.s, this.i); this.i = a.end; return a.text; }
-  opt() { const j = skipWs(this.s, this.i); if (this.s[j] === '[') { const b = readBracket(this.s, j); if (b) { this.i = b.end; return b.text; } } return null; }
+  opt() {
+    const j = skipWs(this.s, this.i);
+    if (this.s[j] === '[') {
+      if (this.lastBr === undefined) this.lastBr = this.s.lastIndexOf(']'); // no ']' after j: an unclosed '[' is plain text
+      if (j < this.lastBr) { const b = readBracket(this.s, j); if (b) { this.i = b.end; return b.text; } }
+    }
+    return null;
+  }
   star() { if (this.s[this.i] === '*') { this.i++; return true; } return false; }
   inl(str) { return this.c.run(str, true); }
   content(str) {
@@ -738,6 +827,7 @@ class Conv {
 
   run(s, inline) {
     if (this.depth > 60) return esc(s);
+    work(40);
     this.depth++;
     const r = new Run(this, s, inline);
     try { this.loop(r); } finally { this.depth--; }
@@ -748,6 +838,7 @@ class Conv {
     const s = r.s; const n = r.n;
     const TXT = /[^\\{}$~&\-'`\s<>]+/y;
     while (r.i < n) {
+      work(1);
       const i = r.i; const ch = s.charCodeAt(i);
       TXT.lastIndex = i;
       const tm = TXT.exec(s);
@@ -755,7 +846,7 @@ class Conv {
       if (isWs(ch)) {
         let j = i; while (j < n && isWs(s.charCodeAt(j))) j++;
         if (/\n[ \t]*\r?\n/.test(s.slice(i, j))) { if (!r.inline) r.flush(); else r.para += ' '; }
-        else if (r.para !== '' && !r.para.endsWith(' ')) r.para += ' ';
+        else if (r.para !== '' && r.spAt !== r.para.length) { r.para += ' '; r.spAt = r.para.length; } // (endsWith would flatten the whole paragraph string each time)
         r.i = j; continue;
       }
       switch (s[i]) {
@@ -777,8 +868,9 @@ class Conv {
         case "'": r.para += s[i + 1] === "'" ? '”' : '’'; r.i += s[i + 1] === "'" ? 2 : 1; continue;
         case '$': {
           const dbl = s[i + 1] === '$';
-          const end = findDollar(s, i + (dbl ? 2 : 1), dbl);
-          if (end < 0) { r.para += '$'; r.i++; continue; }
+          const nc = r.noClose || (r.noClose = {});
+          const end = nc[dbl ? '$$' : '$'] ? -1 : findDollar(s, i + (dbl ? 2 : 1), dbl);
+          if (end < 0) { nc[dbl ? '$$' : '$'] = true; r.para += '$'; r.i++; continue; } // no closer later on: plain text from here
           const tex = s.slice(i + (dbl ? 2 : 1), end);
           r.i = end + (dbl ? 2 : 1);
           if (dbl) r.block(this.displayEq(tex)); else r.para += this.inlineMath(tex);
@@ -793,8 +885,9 @@ class Conv {
       if (isLet(c2)) { j = i + 2; while (j < n && isLet(s.charCodeAt(j))) j++; name = s.slice(i + 1, j); word = true; } else { name = s[i + 1]; j = i + 2; }
       if (name === '(' || name === '[') {
         const close = name === '(' ? '\\)' : '\\]';
-        const e = s.indexOf(close, j);
-        if (e < 0) { r.i = j; continue; }
+        const nc = r.noClose || (r.noClose = {});
+        const e = nc[close] ? -1 : s.indexOf(close, j);
+        if (e < 0) { nc[close] = true; r.i = j; continue; } // unclosed \( or \[: literal, and no rescan for the next one
         const tex = s.slice(j, e); r.i = e + 2;
         if (name === '(') r.para += this.inlineMath(tex); else r.block(this.displayEq(tex));
         continue;
@@ -816,6 +909,7 @@ class Conv {
         else if (word && ACC[name] && /^[uvHckrdb]$/.test(name)) accent(r, name);
         else this.unknownCmd(r, name, word);
       } catch (e) {
+        if (isBail(e)) throw e;
         this.stats.errors++;
         if (r.i < j) r.i = j;
       }
@@ -848,13 +942,13 @@ class Conv {
 
   // ----- math -----
   prepMath(tex) {
-    tex = tex.replace(/\\label\s*\{[^}]*\}/g, '').replace(/\\(?:nonumber|notag)(?![A-Za-z])/g, '');
-    tex = tex.replace(/\\(eqref|ref|cref|Cref|autoref)\s*\{([^}]*)\}/g, (m, cmd, k) => {
+    tex = tex.replace(/\\label\s*\{[^}]{0,300}\}/g, '').replace(/\\(?:nonumber|notag)(?![A-Za-z])/g, '');
+    tex = tex.replace(/\\(eqref|ref|cref|Cref|autoref)\s*\{([^}]{0,300})\}/g, (m, cmd, k) => {
       const info = this.labels.get(k.trim()) || this.aux.get(k.trim());
       if (!info) { this.stats.unresolvedRefs++; return '\\text{??}'; }
       return '\\text{' + (cmd === 'eqref' ? '(' + info.num + ')' : info.num) + '}';
     });
-    tex = tex.replace(/\\(?:vspace|hspace)\*?\s*\{[^}]*\}/g, '').replace(/\\ensuremath(?![A-Za-z])/g, '')
+    tex = tex.replace(/\\(?:vspace|hspace)\*?\s*\{[^}]{0,300}\}/g, '').replace(/\\ensuremath(?![A-Za-z])/g, '')
       .replace(/\\(?:bigskip|medskip|smallskip|centering|noindent)(?![A-Za-z])/g, '').replace(/\\xspace(?![A-Za-z])/g, '')
       .replace(/\\(?:mathbbm|mathds)(?![A-Za-z])/g, '\\mathbb').replace(/\\textsc(?![A-Za-z])/g, '\\text')
       .replace(/\\mbox(?![A-Za-z])/g, '\\text');
@@ -862,6 +956,7 @@ class Conv {
   }
 
   renderMath(tex, display) {
+    work(500 + 20 * tex.length);
     const t = this.prepMath(tex);
     try {
       return katex.renderToString(t, { displayMode: display, throwOnError: true, strict: 'ignore', trust: false, output: 'html', maxExpand: 1000, macros: { ...this.st.katexMacros } });
@@ -876,7 +971,7 @@ class Conv {
   inlineMath(tex) { return this.renderMath(tex, false); }
   displayEq(tex) {
     if (!this.quiet) this.stats.equations++;
-    const labs = []; tex = tex.replace(/\\label\s*\{([^}]*)\}/g, (m, k) => { labs.push(k.trim()); return ''; });
+    const labs = []; tex = tex.replace(/\\label\s*\{([^}]{0,300})\}/g, (m, k) => { labs.push(k.trim()); return ''; });
     let id = null;
     for (const k of labs) { if (!id) id = idOf(k); if (!this.labels.has(k)) this.labels.set(k, { num: this.last.num, id, type: this.last.type }); }
     return '<div class="tex-eq"' + (id ? ' id="' + id + '"' : '') + '>' + this.renderMath(tex, true) + '</div>';
@@ -913,7 +1008,7 @@ class Conv {
     const parts = []; let firstId = null; let anchors = '';
     for (const row of rows) {
       let t = row; const labs = [];
-      t = t.replace(/\\label\s*\{([^}]*)\}/g, (m, k) => { labs.push(k.trim()); return ''; });
+      t = t.replace(/\\label\s*\{([^}]{0,300})\}/g, (m, k) => { labs.push(k.trim()); return ''; });
       const nonum = /\\(nonumber|notag)(?![A-Za-z])/.test(t);
       t = t.replace(/\\(?:nonumber|notag)(?![A-Za-z])/g, '');
       const numbered = !star && !nonum && t.trim() !== '';
@@ -928,7 +1023,7 @@ class Conv {
       parts.push(t + tag);
     }
     let tex = open ? open + parts.join('\\\\') + close : parts[0] || '';
-    if (base === 'multline' && parts[0]) { const tm = /\\tag\{[^}]*\}$/.exec(parts[0]); tex = open + parts[0].replace(/\\tag\{[^}]*\}$/, '') + close + (tm ? tm[0] : ''); }
+    if (base === 'multline' && parts[0]) { const tm = /\\tag\{[^}]{0,300}\}$/.exec(parts[0]); tex = open + parts[0].replace(/\\tag\{[^}]{0,300}\}$/, '') + close + (tm ? tm[0] : ''); }
     return '<div class="tex-eq"' + (firstId ? ' id="' + firstId + '"' : '') + '>' + anchors + this.renderMath(tex, true) + '</div>';
   }
 
@@ -964,7 +1059,7 @@ class Conv {
   titleBlock() {
     if (this.title == null) return '';
     this.titleDone = true;
-    const strip = (t) => t.replace(/\\thanks\s*\{(?:[^{}]|\{[^{}]*\})*\}/g, '').replace(/\\footnotemark(?:\[[^\]]*\])?/g, '');
+    const strip = (t) => t.replace(/\\thanks\s*\{(?:[^{}]|\{[^{}]*\}){0,2000}\}/g, '').replace(/\\footnotemark(?:\[[^\]]{0,300}\])?/g, '');
     let out = '<header class="tex-title"><h1>' + this.run(strip(this.title), true) + '</h1>';
     if (this.author != null) {
       out += '<div class="tex-authors">';
@@ -990,6 +1085,7 @@ class Conv {
     if (w) style += 'width:' + w + ';';
     if (hm) style += 'height:' + hm[1] + hm[2] + ';';
     const name = p.split('/').pop();
+    if (info && info.blocked) return '<span class="tex-gfx" style="' + style + '">blocked path: ' + esc(name) + '</span>';
     if (!info || !info.rel) return '<span class="tex-gfx" style="' + style + '">image not found: ' + esc(name) + '</span>';
     if (GFX_RASTER.test(info.ext)) {
       let url = null;
@@ -1095,7 +1191,7 @@ class Conv {
         const mc = /^\\multicolumn(?![A-Za-z])/.exec(t);
         if (mc) {
           const a = new AR(t.slice(mc[0].length)); const k = a.arg(); const sp = a.arg(); const body = a.arg();
-          if (body != null) { span = parseInt(k, 10) || 1; al = alignOf(sp); t = body; }
+          if (body != null) { span = Math.min(100, Math.max(1, parseInt(k, 10) || 1)); al = alignOf(sp); t = body; }
         }
         this.cellBg = null;
         const content2 = this.run(t, true).trim();
@@ -1148,7 +1244,7 @@ class Conv {
     let t = '\n' + '    '.repeat(this.algoDepth);
     if (this.algoNum && !o.nonum) t += (++this.algoLn) + ': ';
     t += kw + argHtml + (o.suffix || '');
-    if (o.post) this.algoDepth += o.post;
+    if (o.post) this.algoDepth = Math.min(40, this.algoDepth + o.post); // a runaway nesting must not make every line megabytes wide
     r.text(t);
   }
 }
@@ -1213,6 +1309,7 @@ function ignoreArgs(r, spec) {
 }
 
 // ---------- command handlers ----------
+const urlText = (u) => u.trim().replace(/\\([%#_&~$])/g, '$1'); // \url{a\_b\%20}: the backslashes are not part of the address
 const wrap = (open, close) => (r) => { r.text(open + r.inl(r.arg()) + close); };
 Object.assign(H, {
   textbf: wrap('<b>', '</b>'), textit: wrap('<i>', '</i>'), textsl: wrap('<i>', '</i>'), emph: wrap('<em>', '</em>'),
@@ -1252,8 +1349,8 @@ Object.assign(H, {
   '@verbblock': (r) => { const k = +r.arg(); r.block('<pre class="tex-verb"><code>' + esc(r.c.st.verb[k] || '') + '</code></pre>'); },
   '@verbinline': (r) => { const k = +r.arg(); r.text('<code class="tt">' + esc(r.c.st.verb[k] || '') + '</code>'); },
   '@texnote': (r) => { r.text('<span class="tex-note">[' + esc(r.arg()) + ']</span>'); },
-  url: (r) => { const u = r.arg().trim(); r.text(/^(https?:|mailto:)/i.test(u) ? '<a href="' + escAttr(u) + '">' + esc(u) + '</a>' : esc(u)); },
-  href: (r) => { const u = r.arg().trim(); const t = r.arg(); r.text(/^(https?:|mailto:)/i.test(u) ? '<a href="' + escAttr(u) + '">' + r.inl(t) + '</a>' : r.inl(t)); },
+  url: (r) => { const u = urlText(r.arg()); r.text(/^(https?:|mailto:)/i.test(u) ? '<a href="' + escAttr(u) + '">' + esc(u) + '</a>' : esc(u)); },
+  href: (r) => { const u = urlText(r.arg()); const t = r.arg(); r.text(/^(https?:|mailto:)/i.test(u) ? '<a href="' + escAttr(u) + '">' + r.inl(t) + '</a>' : r.inl(t)); },
   textcolor: (r) => { const o = r.opt(); const c = r.arg(); const t = r.arg(); const col = o ? null : cssColor(r.c.st, c); r.text(col ? '<span style="color:' + col + '">' + r.inl(t) + '</span>' : r.inl(t)); },
   colorbox: (r) => { r.opt(); const c = r.arg(); const t = r.arg(); const col = cssColor(r.c.st, c); r.text(col ? '<span style="background:' + col + '">' + r.inl(t) + '</span>' : r.inl(t)); },
   fcolorbox: (r) => { r.opt(); r.arg(); r.arg(); r.text(r.inl(r.arg())); },
@@ -1279,9 +1376,10 @@ Object.assign(H, {
   twocolumn: (r) => { const o = r.opt(); if (o != null) r.content(o); },
   footnote: (r) => {
     r.opt(); const t = r.arg(); const c = r.c;
-    const n = ++c.counters.footnote;
-    const fh = r.inl(t);
-    if (!c.quiet) c.footnotes.push({ n, html: fh });
+    const n = ++c.counters.footnote; // numbered in the whole document, also while quiet
+    const slot = { n, html: '' };
+    if (!c.quiet) c.footnotes.push(slot); // the slot is reserved before the text is rendered: a nested footnote gets the next number
+    slot.html = r.inl(t);
     r.text('<sup class="tex-fnref"><a id="fnref-' + n + '" href="#fn-' + n + '">' + n + '</a></sup>');
   },
   footnotetext: (r) => { r.opt(); r.arg(); },
@@ -1462,12 +1560,14 @@ function theoremEnv(r, base, content) {
 }
 
 // ---------- post processing ----------
+const NAMES = dict({ section: ['section', 'sections'], figure: ['figure', 'figures'], table: ['table', 'tables'], equation: ['equation', 'equations'], algorithm: ['algorithm', 'algorithms'], item: ['item', 'items'], theorem: ['theorem', 'theorems'], appendix: ['appendix', 'appendices'] });
+const NAMES_CAP = dict({ section: 'Section', figure: 'Figure', table: 'Table', equation: 'Equation', algorithm: 'Algorithm', item: 'Item' });
 function nameFor(st, type, cap, plural) {
   const tbl = cap ? st.crefCap : st.crefLow;
-  if (tbl[type]) return tbl[type][plural ? 1 : 0];
-  const base = { section: ['section', 'sections'], figure: ['figure', 'figures'], table: ['table', 'tables'], equation: ['equation', 'equations'], algorithm: ['algorithm', 'algorithms'], item: ['item', 'items'], theorem: ['theorem', 'theorems'], appendix: ['appendix', 'appendices'] }[type] || [type, type + 's'];
+  if (tbl[type]) return esc(tbl[type][plural ? 1 : 0]);
+  const base = NAMES[type] || [type, type + 's'];
   const w = base[plural ? 1 : 0];
-  return cap ? w.charAt(0).toUpperCase() + w.slice(1) : w;
+  return esc(cap ? w.charAt(0).toUpperCase() + w.slice(1) : w);
 }
 
 function resolveRefs(html, conv) {
@@ -1491,7 +1591,7 @@ function resolveRefs(html, conv) {
     const joinList = (arr) => (arr.length <= 2 ? arr.join(' and ') : arr.slice(0, -1).join(', ') + ', and ' + arr[arr.length - 1]);
     const known = items.filter((x) => x.info);
     const sameType = known.length === items.length && known.every((x) => x.info.type === known[0].info.type);
-    const label = (type, plural) => (mode === 'auto' ? { section: 'Section', figure: 'Figure', table: 'Table', equation: 'Equation', algorithm: 'Algorithm', item: 'Item' }[type] || nameFor(st, type, true, false) : nameFor(st, type, mode === 'Cref', plural));
+    const label = (type, plural) => (mode === 'auto' ? NAMES_CAP[type] || nameFor(st, type, true, false) : nameFor(st, type, mode === 'Cref', plural));
     if (sameType && items.length) return label(known[0].info.type, items.length > 1 && mode !== 'auto') + ' ' + joinList(items.map(fmt));
     return joinList(items.map((it) => (it.info ? label(it.info.type, false) + ' ' : '') + fmt(it)));
   });
@@ -1535,7 +1635,7 @@ function newState(opts) {
     baseName: opts.baseName || 'main', maxDepth: opts.maxDepth || 10,
     part: opts.part ? { rel: opts.part.rel, text: opts.part.text, used: false } : null, verb: [], cond: [], flags: new Map(), stack: [], inputCount: 0,
     macros: new Map(), envs: new Map(), colors: new Map(), theorems: new Map(), graphicsPath: [],
-    fontNames: new Set(), pkgSeen: null, secnumdepth: null, crefLow: {}, crefCap: {}, numPrefix: {}, eqWithin: false, budget: 60000, katexMacros: {}, text: '', builtin: null,
+    fontNames: new Set(), pkgSeen: null, secnumdepth: null, crefLow: Object.create(null), crefCap: Object.create(null), numPrefix: {}, eqWithin: false, budget: 60000, katexMacros: {}, text: '', builtin: null, srcLen: 0, expTotal: 0,
   };
   st.builtin = new Set([...Object.keys(H), ...PROTECT]);
   return st;
@@ -1553,16 +1653,17 @@ function buildKatexMacros(st) {
 async function resolveImages(conv, text) {
   const st = conv.st;
   const paths = new Set();
-  const re = /\\includegraphics\*?\s*(?:\[[^\]]*\]\s*)?\{([^}]*)\}/g; let m;
+  const re = /\\includegraphics\*?\s*(?:\[[^\]]{0,300}\]\s*)?\{([^}]{0,300})\}/g; let m;
   while ((m = re.exec(text))) paths.add(m[1].trim());
   const join = (a, b) => (a ? (a.endsWith('/') ? a : a + '/') + b : b).replace(/\/\.\//g, '/').replace(/^\.\//, '');
   await Promise.all([...paths].map(async (p) => {
     const hasExt = /\.([A-Za-z]{2,4})$/.exec(p);
     const known = hasExt && GFX_EXTS.includes(hasExt[1].toLowerCase());
     const exts = known ? [''] : GFX_EXTS.map((e) => '.' + e);
-    const prefixes = p.startsWith('/') ? [''] : ['', ...st.graphicsPath];
+    if (safeRel(p) == null) { conv.images.set(p, { blocked: true }); return; }
+    const prefixes = ['', ...st.graphicsPath];
     const cands = [];
-    for (const pre of prefixes) for (const e of exts) cands.push(join(pre, p) + e);
+    for (const pre of prefixes) for (const e of exts) { const c = join(pre, p) + e; if (safeRel(c) != null) cands.push(c); }
     let found = null;
     if (st.exists) {
       const flags = await Promise.all(cands.map((c) => Promise.resolve(st.exists(c)).then((x) => !!x, () => false)));
@@ -1574,7 +1675,11 @@ async function resolveImages(conv, text) {
   }));
 }
 
-async function texToHtml(text, opts) {
+function texToHtml(text, opts) {
+  return als.run(newBudget(String(text).length), () => convert(text, opts));
+}
+
+async function convert(text, opts) {
   opts = opts || {};
   const t0 = Date.now();
   let conv = null;
@@ -1582,6 +1687,7 @@ async function texToHtml(text, opts) {
     const st = newState(opts);
     conv = new Conv(st);
     let src = String(text);
+    st.srcLen = src.length;
     if (st.part && opts.part.preambleOnly) {
       const bd = src.indexOf('\\begin{document}');
       src = (bd >= 0 ? src.slice(0, bd) : src) + '\\begin{document}\\@partbegin ' + st.part.text + '\\@partend \\end{document}';
@@ -1606,8 +1712,8 @@ async function texToHtml(text, opts) {
     st.text = t; conv.hasChapter = /\\chapter(?![A-Za-z])/.test(t);
     conv.stats.inputs = st.inputCount;
     // aux labels (exact numbers when a compiled .aux exists), external documents, bbl
-    const extern = []; const ex = /\\externaldocument(?:\[([^\]]*)\])?\{([^}]*)\}/g; let m;
-    while ((m = ex.exec(t))) extern.push([m[1] || '', m[2].trim()]);
+    const extern = []; const ex = /\\externaldocument(?:\[([^\]]{0,300})\])?\{([^}]{0,300})\}/g; let m;
+    while ((m = ex.exec(t))) if (safeRel(m[2].trim()) != null) extern.push([m[1] || '', m[2].trim()]);
     const tasks = [];
     tasks.push(Promise.resolve(st.readFile(st.baseName + '.aux')).then((x) => { if (typeof x === 'string') parseAux(x, '', conv.aux); }, () => {}));
     for (const [pre, nm] of extern) tasks.push(Promise.resolve(st.readFile(nm + '.aux')).then((x) => { if (typeof x === 'string') parseAux(x, pre, conv.aux); }, () => {}));
@@ -1637,6 +1743,7 @@ async function texToHtml(text, opts) {
     // .bib fallback for the reference list
     if (conv.bibWanted && !conv.bibItems && conv.bibNames.length) {
       for (const nm of conv.bibNames) {
+        if (safeRel(nm) == null) continue;
         try { const x = await st.readFile(/\.bib$/i.test(nm) ? nm : nm + '.bib'); if (typeof x === 'string') for (const [k, v] of parseBibFile(x)) conv.bibFiles.set(k, v); } catch (e) { /* ignore */ }
       }
     }
@@ -1661,19 +1768,28 @@ async function texToHtml(text, opts) {
     })());
     html = html.replace(/\u0001B\u0001/g, '');
     if (conv.footnotes.length) {
-      html += '<section class="tex-footnotes"><hr><ol>' + conv.footnotes.map((f) => '<li id="fn-' + f.n + '">' + f.html + ' <a class="tex-fnback" href="#fnref-' + f.n + '">↩</a></li>').join('') + '</ol></section>';
+      conv.footnotes.sort((a, b2) => a.n - b2.n);
+      html += '<section class="tex-footnotes"><hr><ol>' + conv.footnotes.map((f) => '<li value="' + f.n + '" id="fn-' + f.n + '">' + f.html + ' <a class="tex-fnback" href="#fnref-' + f.n + '">↩</a></li>').join('') + '</ol></section>';
     }
     html = html.replace(/[\u0000-\u0004]/g, '');
     const stats = conv.stats;
     stats.ms = Date.now() - t0; stats.rootName = opts.rootName;
     stats.unknownTop = [...stats.unknown.entries()].sort((a, b2) => b2[1] - a[1]).slice(0, 15);
     stats.unknownEnvTop = [...stats.unknownEnvs.entries()].sort((a, b2) => b2[1] - a[1]).slice(0, 10);
-    if (!html.replace(/<[^>]*>/g, '').trim()) html = '<p class="tex-note">(This LaTeX file has no visible text.)</p>' + html;
+    if (html.length > (opts.maxHtml || Math.max(32e6, 100 * st.srcLen))) throw bail('the preview is too large');
+    if (!stripTags(html).trim() && !/<(?:img|svg)[\s>]/.test(html)) html = '<p class="tex-note">(This LaTeX file has no visible text.)</p>' + html;
     return { html: '<div class="tex-doc">' + html + '</div>', stats };
   } catch (e) {
     const stats = conv ? conv.stats : {}; stats.error = String(e && e.message); stats.ms = Date.now() - t0;
+    if (isBail(e)) { // hostile or runaway input: a notice instead of a frozen host or a huge page
+      stats.bailed = true;
+      return { html: '<div class="tex-doc"><p class="tex-note">LaTeX preview stopped: ' + esc(e.message) + '. Open the source or compile mode to see this file.</p></div>', stats };
+    }
     return { html: '<p class="tex-note">LaTeX preview failed (' + esc(e && e.message) + '). The source is shown below.</p><pre>' + esc(text) + '</pre>', stats };
   }
 }
+
+// Remove tags until none are left (used only to test whether a document has any visible text).
+function stripTags(h) { let p; do { p = h; h = h.replace(/<[^>]*>/g, ''); } while (h !== p); return h; }
 
 module.exports = { texToHtml };

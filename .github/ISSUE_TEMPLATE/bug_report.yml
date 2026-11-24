@@ -1,0 +1,51 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: input
+    id: editor
+    attributes:
+      label: Editor and version
+      placeholder: VS Code 1.95 or Cursor 0.45
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Fast Document Viewer version
+      placeholder: 0.8.1
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system (the machine where the editor window runs)
+      options: [macOS, Windows, Linux]
+    validations:
+      required: true
+  - type: dropdown
+    id: remote
+    attributes:
+      label: Remote-SSH
+      options: ["No, local files", "Yes, Remote-SSH", "Other remote (WSL, containers, Codespaces)"]
+    validations:
+      required: true
+  - type: dropdown
+    id: filetype
+    attributes:
+      label: File type
+      options: [Markdown, PDF, HTML, LaTeX preview, LaTeX compile mode]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Output log
+      description: Open View > Output and choose "Paper MD" in the dropdown. Paste the text here.
+      render: text

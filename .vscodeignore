@@ -2,6 +2,8 @@
 **/*.map
 **/*.md
 !README.md
+!CHANGELOG.md
+!media/walkthrough/**
 **/test/**
 **/tests/**
 **/*.d.ts
@@ -33,3 +35,6 @@ node_modules/highlight.js/lib/common.js
 node_modules/argparse/**/*.md
 node_modules/**/LICENSE*
 node_modules/**/CHANGELOG*
+.github/**
+AGENTS.md
+docs/**

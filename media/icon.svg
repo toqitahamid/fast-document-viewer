@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 128 128">
+  <!-- Fast Document Viewer icon: a calm printed page gliding forward -->
+  <rect x="0" y="0" width="128" height="128" rx="26" fill="#1b4a5c"/>
+  <!-- speed lines (accent) -->
+  <g stroke="#f2a33a" stroke-width="6" stroke-linecap="round" fill="none">
+    <line x1="14" y1="50" x2="30" y2="50"/>
+    <line x1="20" y1="66" x2="30" y2="66"/>
+    <line x1="14" y1="82" x2="30" y2="82"/>
+  </g>
+  <!-- page with folded top-right corner -->
+  <path d="M44 22 H82 L102 42 V100 a6 6 0 0 1 -6 6 H44 a6 6 0 0 1 -6 -6 V28 a6 6 0 0 1 6 -6 Z" fill="#f4efe6"/>
+  <path d="M82 22 V36 a6 6 0 0 0 6 6 H102 Z" fill="#cfc6b6"/>
+  <!-- text lines -->
+  <g stroke="#2e5566" stroke-width="6" stroke-linecap="round">
+    <line x1="50" y1="56" x2="90" y2="56"/>
+    <line x1="50" y1="72" x2="90" y2="72"/>
+    <line x1="50" y1="88" x2="76" y2="88"/>
+  </g>
+</svg>

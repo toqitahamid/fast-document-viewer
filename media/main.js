@@ -1,5 +1,93 @@
 (function () {
+  // ---- Pure helpers (no DOM). Exported for tests when loaded under Node. ----
+  const MAX_PDF_BYTES = 512 * 1024 * 1024;
+  const PAGE_WINDOW = 3; // keep canvases for this many pages either side of the current page
+  const FIG_CACHE_MAX = 40;
+
+  // The message channel may deliver bytes as ArrayBuffer, a typed array, a serialized Node
+  // Buffer ({type:'Buffer', data:[...]}), an array, or an object with numeric keys.
+  // Turn any of them into a Uint8Array. Sizes are capped; anything else is rejected.
+  function toBytes(d, max) {
+    const cap = max || MAX_PDF_BYTES;
+    const tooBig = () => new Error('PDF data is too large');
+    if (!d || typeof d !== 'object') throw new Error('no PDF data received');
+    if (d instanceof Uint8Array) { if (d.length > cap) throw tooBig(); return d; }
+    if (d instanceof ArrayBuffer) { if (d.byteLength > cap) throw tooBig(); return new Uint8Array(d); }
+    if (ArrayBuffer.isView(d)) { if (d.byteLength > cap) throw tooBig(); return new Uint8Array(d.buffer, d.byteOffset, d.byteLength); }
+    if (Array.isArray(d)) { if (d.length > cap) throw tooBig(); return Uint8Array.from(d); }
+    if (d.type === 'Buffer' && Array.isArray(d.data)) { if (d.data.length > cap) throw tooBig(); return Uint8Array.from(d.data); }
+    const n = d.length;
+    if (!Number.isInteger(n) || n < 0 || n > cap) throw new Error('unexpected PDF data');
+    const out = new Uint8Array(n);
+    for (let i = 0; i < n; i++) out[i] = d[i];
+    return out;
+  }
+
+  // Messages from a frame INSIDE the page (a child or deeper descendant frame, such as an iframe in a
+  // Markdown file) must not drive the viewer. Everything else is the host: VS Code relays host
+  // messages through its own frames, which differ between editor versions, so they are accepted.
+  function isHostMessage(e, self) {
+    if (!e || !e.data || typeof e.data !== 'object') return false;
+    let w = e.source;
+    for (let i = 0; w && i < 32; i++) {
+      let up;
+      try { up = w.parent; } catch (err) { return false; } // cross-origin access denied: treat as foreign
+      if (!up || up === w) return true; // reached a top window without passing through this one
+      if (up === self) return false; // this frame lies inside our own window
+      w = up;
+    }
+    return true;
+  }
+
+  // Indices of rendered pages that should lose their canvas: outside the window around the
+  // current page and not intersecting the observer's margin.
+  function pagesToEvict(rendered, cur, win, visible) {
+    return rendered.filter((i) => Math.abs(i - cur) > win && !(visible && visible.has(i)));
+  }
+
+  // Map-based LRU. onEvict(value, key) runs for entries dropped by the cap or by delete/clear.
+  function createLru(max, onEvict) {
+    const m = new Map();
+    const drop = (k) => { const v = m.get(k); m.delete(k); if (onEvict) onEvict(v, k); };
+    return {
+      get(k) { if (!m.has(k)) return undefined; const v = m.get(k); m.delete(k); m.set(k, v); return v; },
+      set(k, v) {
+        if (m.has(k)) drop(k);
+        m.set(k, v);
+        while (m.size > max) drop(m.keys().next().value);
+      },
+      delete(k) { if (m.has(k)) drop(k); },
+      clear() { for (const k of Array.from(m.keys())) drop(k); },
+      keys() { return Array.from(m.keys()); },
+      get size() { return m.size; },
+    };
+  }
+
+  // A figure URL is its own cache key (a ?v= stamp added by the host makes a changed file a new key).
+  const figKey = (url) => String(url).split('#')[0];
+  const figVersioned = (key) => /[?&]v=/.test(key);
+
+  function safeDecode(s) { try { return decodeURIComponent(s); } catch (e) { return s; } }
+
+  // In-page "#anchor": generated heading ids carry a prefix, so try that first. Only elements
+  // inside the document count, so a link can never land on the viewer's own elements.
+  function resolveAnchor(raw, byId, inContent) {
+    const id = safeDecode(raw);
+    for (const c of ['h-' + id, id]) {
+      if (!c) continue;
+      const el = byId(c);
+      if (el && inContent(el)) return el;
+    }
+    return null;
+  }
+
+  if (typeof module === 'object' && module && module.exports) {
+    module.exports = { toBytes, isHostMessage, pagesToEvict, createLru, figKey, figVersioned, resolveAnchor, safeDecode, MAX_PDF_BYTES, PAGE_WINDOW, FIG_CACHE_MAX };
+  }
+  if (typeof acquireVsCodeApi !== 'function') return;
+
   const vscode = acquireVsCodeApi();
+  if (document.body.dataset.theme === 'auto') document.body.classList.add('fdv-follow-theme');
   const scriptNonce = document.currentScript && document.currentScript.nonce;
   const content = document.getElementById('content');
   const t = { origin: performance.timeOrigin, dom: Date.now() };
@@ -17,19 +105,30 @@
   const pdfEl = document.getElementById('pdf');
   const bar = document.getElementById('pdfbar');
   const pageLabel = document.getElementById('pdf-page');
-  const frame = document.getElementById('htmlframe');
-  let pendingHtml = null; // { sent, name } until the iframe fires 'load'
-  frame.addEventListener('load', () => {
-    if (!pendingHtml) return;
-    vscode.postMessage({ type: 'htmlShown', name: pendingHtml.name, sent: pendingHtml.sent, at: Date.now() });
-    pendingHtml = null;
-  });
+
+  // Names for assistive technology (the page template only sets titles).
+  const label = (id, text, role) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.setAttribute('aria-label', text);
+    if (role) el.setAttribute('role', role);
+  };
+  content.setAttribute('role', 'document');
+  label('edit-btn', 'Edit as text');
+  label('pdfbar', 'PDF controls', 'toolbar');
+  label('pdf-out', 'Zoom out');
+  label('pdf-in', 'Zoom in');
+  label('pdf-fit', 'Fit page width');
+  label('pdf-100', 'Actual size, 100 percent');
+  label('pdf', 'PDF pages', 'document');
+  const html = document.getElementById('htmlframe');
+  if (html) html.remove(); // the HTML-in-frame view was removed; nothing sends it any more
 
   // ---- PDF viewer (pdf.js is loaded on the first PDF) ----
   const pdfState = new Map(); // key -> { frac, zoom }
   let libPromise = null;
   let seq = 0; // bumps on every mode or file change; stale async work checks it
-  let pdf = null; // { doc, key, name, zoom, gen, pages: [{div, canvas, tl, tlNew, tlTask, gen, task, w, h}], io }
+  let pdf = null; // { doc, key, name, zoom, fit, gen, vis, pages: [{div, canvas, page, tl, tlNew, tlTask, gen, task, w, h}], io }
   let shownSent = 0;
 
   function loadLib() {
@@ -54,23 +153,17 @@
   function setMode(m) {
     mode = m;
     const isPdf = m === 'pdf';
-    const isHtml = m === 'html';
     document.documentElement.classList.toggle('pdf-mode', isPdf);
-    content.style.display = isPdf || isHtml ? 'none' : '';
+    content.style.display = isPdf ? 'none' : '';
     pdfEl.hidden = !isPdf;
     bar.hidden = !isPdf;
-    frame.hidden = !isHtml;
-    if (!isHtml && frame.getAttribute('src') && frame.getAttribute('src') !== 'about:blank') {
-      pendingHtml = null;
-      frame.src = 'about:blank'; // free the page's memory
-    }
     if (btn) btn.style.display = isPdf ? 'none' : '';
   }
 
   function savePdfState() {
     if (!pdf) return;
     const h = document.documentElement.scrollHeight;
-    pdfState.set(pdf.key, { frac: h ? window.scrollY / h : 0, zoom: pdf.zoom });
+    pdfState.set(pdf.key, { frac: h ? window.scrollY / h : 0, zoom: pdf.zoom, fit: !!pdf.fit });
   }
 
   // Stop the page's canvas render and text-layer build; drop a half-built text layer.
@@ -80,11 +173,28 @@
     if (pg.tlNew) { pg.tlNew.remove(); pg.tlNew = null; }
   }
 
+  // Free a page's canvas and text layer (a 16 Mpx canvas is ~64 MB). It is redrawn when the
+  // page comes back into view: gen = 0 makes renderPage run again.
+  function evictPage(pg) {
+    cancelPage(pg);
+    pg.gen = 0;
+    if (pg.canvas) { pg.canvas.width = 0; pg.canvas.height = 0; pg.canvas.remove(); pg.canvas = null; }
+    if (pg.tl) { pg.tl.remove(); pg.tl = null; }
+    if (pg.page) { try { pg.page.cleanup(); } catch (e) { /* ignore */ } pg.page = null; }
+  }
+
+  function evictFar(cur) {
+    const p = pdf;
+    const rendered = [];
+    p.pages.forEach((pg, i) => { if (pg.canvas || pg.gen) rendered.push(i); });
+    for (const i of pagesToEvict(rendered, cur, PAGE_WINDOW, p.vis)) evictPage(p.pages[i]);
+  }
+
   function closePdf() {
     if (!pdf) return;
     const p = pdf; pdf = null;
     if (p.io) p.io.disconnect();
-    for (const pg of p.pages) cancelPage(pg);
+    for (const pg of p.pages) { cancelPage(pg); pg.page = null; }
     pdfEl.textContent = '';
     if (p.doc) p.doc.destroy();
   }
@@ -112,9 +222,16 @@
     const gen = p.gen;
     try {
       const page = await p.doc.getPage(i + 1);
-      if (pdf !== p || p.gen !== gen) return;
+      if (pdf !== p || p.gen !== gen || pg.gen !== gen) return;
       const base = page.getViewport({ scale: 1 });
-      if (pg.w !== base.width || pg.h !== base.height) { pg.w = base.width; pg.h = base.height; sizePage(pg); }
+      if (pg.w !== base.width || pg.h !== base.height) {
+        // A page of another size changes the layout. If it sits above the reading position,
+        // shift the scroll by the same amount so the text on screen does not jump.
+        const before = pg.div.offsetHeight;
+        const above = pg.div.offsetTop + before <= window.scrollY;
+        pg.w = base.width; pg.h = base.height; sizePage(pg);
+        if (above) window.scrollBy(0, pg.div.offsetHeight - before);
+      }
       const cssW = base.width * CSS_PER_PT * p.zoom;
       const vp = page.getViewport({ scale: cssW / base.width });
       let dpr = window.devicePixelRatio || 1;
@@ -130,9 +247,10 @@
       pg.task = task;
       await task.promise;
       pg.task = null;
-      if (pdf !== p || p.gen !== gen) return;
+      if (pdf !== p || p.gen !== gen || pg.gen !== gen) { canvas.width = 0; canvas.height = 0; return; }
       if (pg.canvas) pg.canvas.remove();
       pg.canvas = canvas;
+      pg.page = page;
       pg.div.insertBefore(canvas, pg.div.firstChild); // the text layer stays above the canvas
       if (shownSent) {
         vscode.postMessage({ type: 'pdfShown', key: p.key, name: p.name, pages: p.doc.numPages, sent: shownSent, at: Date.now() });
@@ -153,7 +271,7 @@
     let tl = null;
     try {
       const tc = await page.getTextContent();
-      if (pdf !== p || p.gen !== gen) return;
+      if (pdf !== p || p.gen !== gen || pg.gen !== gen) return;
       tl = document.createElement('div');
       tl.className = 'textLayer';
       tl.style.setProperty('--scale-factor', String(vp.scale));
@@ -163,7 +281,7 @@
       pg.tlTask = task;
       await task.promise;
       pg.tlTask = null;
-      if (pdf !== p || p.gen !== gen) { tl.remove(); return; }
+      if (pdf !== p || p.gen !== gen || pg.gen !== gen) { tl.remove(); return; }
       pg.tlNew = null;
       if (pg.tl) pg.tl.remove();
       pg.tl = tl;
@@ -180,7 +298,10 @@
     if (p.io) p.io.disconnect();
     // Render the visible pages plus about one screen ahead (and a little behind).
     p.io = new IntersectionObserver((entries) => {
-      for (const en of entries) if (en.isIntersecting) renderPage(p, Number(en.target.dataset.i));
+      for (const en of entries) {
+        const i = Number(en.target.dataset.i);
+        if (en.isIntersecting) { p.vis.add(i); renderPage(p, i); } else p.vis.delete(i);
+      }
     }, { rootMargin: '50% 0px 100% 0px' });
     for (const pg of p.pages) p.io.observe(pg.div);
   }
@@ -207,80 +328,59 @@
     for (let i = 0; i < pdf.pages.length; i++) {
       if (pdf.pages[i].div.offsetTop <= probe) cur = i; else break;
     }
-    pageLabel.textContent = (cur + 1) + ' / ' + pdf.pages.length + '  ' + Math.round(pdf.zoom * 100) + '%';
+    pageLabel.textContent = 'Page ' + (cur + 1) + ' of ' + pdf.pages.length + ', ' + Math.round(pdf.zoom * 100) + '%';
+    evictFar(cur);
   }
 
-  function setZoom(z) {
+  // fit: this zoom was chosen with "Fit"; the window width then keeps driving it.
+  function setZoom(z, fit) {
     if (!pdf) return;
     pdf.zoom = Math.min(5, Math.max(0.25, z));
+    pdf.fit = !!fit;
     relayout();
-  }
-
-  // The message channel may deliver bytes as ArrayBuffer, a typed array, a
-  // serialized Node Buffer ({type:'Buffer', data:[...]}), an array, or an
-  // object with numeric keys. Turn any of them into a Uint8Array.
-  function toBytes(d) {
-    if (!d) throw new Error('no PDF data received');
-    if (d instanceof Uint8Array) return d;
-    if (d instanceof ArrayBuffer) return new Uint8Array(d);
-    if (ArrayBuffer.isView(d)) return new Uint8Array(d.buffer, d.byteOffset, d.byteLength);
-    if (Array.isArray(d)) return Uint8Array.from(d);
-    if (d.type === 'Buffer' && Array.isArray(d.data)) return Uint8Array.from(d.data);
-    if (typeof d === 'object') {
-      const n = typeof d.length === 'number' ? d.length : Object.keys(d).length;
-      const out = new Uint8Array(n);
-      for (let i = 0; i < n; i++) out[i] = d[i];
-      return out;
-    }
-    throw new Error('unexpected PDF data type: ' + typeof d);
-  }
-
-  function showHtml(m) {
-    seq++;
-    if (mode === 'md') scrolls.set(currentKey, window.scrollY);
-    else if (mode === 'pdf') { savePdfState(); closePdf(); }
-    currentKey = m.key;
-    setMode('html');
-    pendingHtml = { sent: m.sent || Date.now(), name: m.name };
-    frame.src = m.src;
   }
 
   // A re-show of the same key (a recompiled PDF) keeps the old pages on screen until the new
   // document is loaded, then swaps them at once and restores zoom and reading position.
   async function showPdf(m) {
     const my = ++seq;
+    let doc = null;
     const same = mode === 'pdf' && !!pdf && currentKey === m.key;
     if (mode === 'md') scrolls.set(currentKey, window.scrollY); else savePdfState();
     if (!same) {
       closePdf();
       currentKey = m.key;
       setMode('pdf');
-      pageLabel.textContent = 'Loading...';
+      pageLabel.textContent = 'Loading PDF\u2026';
       window.scrollTo(0, 0);
     }
     try {
       const lib = await loadLib();
       if (my !== seq) return;
-      const doc = await lib.getDocument({ data: toBytes(m.data), isEvalSupported: false }).promise;
+      doc = await lib.getDocument({ data: toBytes(m.data), isEvalSupported: false }).promise;
       if (my !== seq) { doc.destroy(); return; }
       const first = await doc.getPage(1);
       if (my !== seq) { doc.destroy(); return; }
       const v = first.getViewport({ scale: 1 });
       const saved = pdfState.get(m.key) || { frac: 0, zoom: 1 };
-      const p = { doc, key: m.key, name: m.name, zoom: saved.zoom, gen: 1, pages: [], io: null };
+      const p = { doc, key: m.key, name: m.name, zoom: saved.zoom, fit: !!saved.fit, gen: 1, pages: [], vis: new Set(), io: null };
       const frag = document.createDocumentFragment();
       for (let i = 0; i < doc.numPages; i++) {
         const div = document.createElement('div');
         div.className = 'pdf-page';
         div.dataset.i = String(i);
-        p.pages.push({ div, canvas: null, tl: null, tlNew: null, tlTask: null, gen: 0, task: null, w: i === 0 ? v.width : 0, h: i === 0 ? v.height : 0 });
+        div.setAttribute('role', 'group');
+        div.setAttribute('aria-label', 'Page ' + (i + 1) + ' of ' + doc.numPages);
+        p.pages.push({ div, canvas: null, page: null, tl: null, tlNew: null, tlTask: null, gen: 0, task: null, w: i === 0 ? v.width : 0, h: i === 0 ? v.height : 0 });
         frag.appendChild(div);
       }
       const old = same ? pdf : null;
       const oldCanvases = old ? old.pages.map((pg) => pg.canvas) : [];
       if (old) closePdf();
       pdf = p;
+      doc = null; // owned by the viewer now; closePdf destroys it
       shownSent = m.sent || 0;
+      if (p.fit) p.zoom = fitZoom();
       for (const pg of p.pages) sizePage(pg);
       pdfEl.appendChild(frag);
       // Show the old page images until the new ones are drawn (no blank flash).
@@ -289,15 +389,17 @@
       observe();
       updatePage();
     } catch (e) {
+      if (doc) { try { doc.destroy(); } catch (e2) { /* ignore */ } }
       if (my === seq) {
-        if (!same) { pageLabel.textContent = ''; pdfEl.textContent = 'Could not show this PDF: ' + (e && e.message); }
+        if (!same) { pageLabel.textContent = ''; pdfEl.textContent = 'This PDF could not be opened. It may be damaged or still being written. Save it again and reopen it.'; }
         vscode.postMessage({ type: 'pdfError', message: String(e && e.message) });
       }
     }
   }
 
   // ---- PDF figures in LaTeX previews (.tex-pdffig). Separate from the PDF viewer: own queue, own documents. ----
-  const figCache = new Map(); // url -> { src (blob URL), pxW, ratio, cssW }
+  // key (see figKey) -> { src (blob URL), pxW, ratio, cssW }. Capped; blob URLs are revoked on eviction.
+  const figCache = createLru(FIG_CACHE_MAX, (c) => { if (c && c.src) URL.revokeObjectURL(c.src); });
   const figQueue = [];
   let figBusy = false;
   let figIo = null;
@@ -315,11 +417,12 @@
 
   async function renderFig(el) {
     const url = el.dataset.src;
+    const key = figKey(url);
     const hint = !!el.dataset.w;
     const container = content.clientWidth || 800;
     const target = hint && el.clientWidth > 20 ? el.clientWidth : 0; // 0: natural width
     const dpr = window.devicePixelRatio || 1;
-    let c = figCache.get(url);
+    let c = figCache.get(key);
     if (c && (!target || c.pxW >= target * dpr * 0.9)) { figShow(el, c); return; }
     let doc = null;
     try {
@@ -341,13 +444,13 @@
       await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp, background: 'rgb(255,255,255)' }).promise;
       const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
       if (!blob) throw new Error('could not encode the figure');
-      if (c && c.src) URL.revokeObjectURL(c.src);
       c = { src: URL.createObjectURL(blob), pxW: canvas.width, ratio: canvas.width / canvas.height, cssW: Math.round(cssW) };
-      figCache.set(url, c);
+      figCache.set(key, c); // replacing an entry revokes the old blob URL
       figShow(el, c);
     } catch (e) {
       el.classList.add('done');
       vscode.postMessage({ type: 'pdfError', message: 'figure ' + url.split('/').pop() + ': ' + (e && e.message) });
+      el.textContent = 'This figure could not be shown.';
     } finally {
       if (doc) { try { doc.destroy(); } catch (e2) { /* ignore */ } }
     }
@@ -374,14 +477,14 @@
       figPump();
     }, { rootMargin: '300px 0px' });
     for (const el of els) {
-      const c = figCache.get(el.dataset.src);
+      const c = figCache.get(figKey(el.dataset.src));
       if (c) figShow(el, c); else figIo.observe(el);
     }
   }
 
   document.getElementById('pdf-out').addEventListener('click', () => setZoom(pdf ? pdf.zoom / 1.2 : 1));
   document.getElementById('pdf-in').addEventListener('click', () => setZoom(pdf ? pdf.zoom * 1.2 : 1));
-  document.getElementById('pdf-fit').addEventListener('click', () => setZoom(pdf ? fitZoom() : 1));
+  document.getElementById('pdf-fit').addEventListener('click', () => setZoom(pdf ? fitZoom() : 1, true));
   document.getElementById('pdf-100').addEventListener('click', () => setZoom(1));
 
   // Trackpad pinch (and Ctrl + mouse wheel) arrive as wheel events with ctrlKey.
@@ -397,13 +500,15 @@
     const docX = window.scrollX + e.clientX;
     const docY = window.scrollY + e.clientY;
     pdf.zoom = z;
+    pdf.fit = false;
     for (const pg of pdf.pages) sizePage(pg);
     const r = z / old;
     window.scrollTo(docX * r - e.clientX, docY * r - e.clientY);
     updatePage();
     clearTimeout(pinchTimer);
+    const p = pdf;
     pinchTimer = setTimeout(() => {
-      if (!pdf) return;
+      if (pdf !== p) return;
       pdf.gen++;
       for (const pg of pdf.pages) cancelPage(pg);
       observe();
@@ -414,7 +519,8 @@
     clearTimeout(rsTimer);
     rsTimer = setTimeout(() => {
       const w = document.documentElement.clientWidth;
-      if (mode === 'pdf' && w !== lastW) relayout();
+      // Only a page-width fit depends on the window; other zooms keep their canvases.
+      if (mode === 'pdf' && w !== lastW && pdf) { if (pdf.fit) setZoom(fitZoom(), true); else updatePage(); }
       lastW = w;
     }, 150);
   });
@@ -428,38 +534,39 @@
   // ---- Banner over the page (compile errors, "Compiling...") ----
   let bannerEl = null;
   function setBanner(text, level) {
-    if (!text) { if (bannerEl) bannerEl.style.display = 'none'; return; }
+    if (!text) { if (bannerEl) bannerEl.hidden = true; return; }
+    const isInfo = level === 'info';
     if (!bannerEl) {
       bannerEl = document.createElement('div');
       bannerEl.id = 'paper-banner';
-      bannerEl.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:50;padding:8px 36px 8px 14px;font:13px/1.4 var(--vscode-font-family,sans-serif);white-space:pre-wrap;max-height:40vh;overflow:auto;box-shadow:0 2px 6px rgba(0,0,0,.3)';
-      const x = document.createElement('span');
-      x.textContent = '\u00d7'; x.title = 'Dismiss';
-      x.style.cssText = 'position:absolute;top:4px;right:12px;cursor:pointer;font-size:18px';
-      x.addEventListener('click', () => { bannerEl.style.display = 'none'; });
-      bannerEl.appendChild(x);
-      bannerEl.appendChild(document.createElement('div'));
+      const x = document.createElement('button');
+      x.type = 'button'; x.className = 'paper-banner-x'; x.textContent = '\u00d7';
+      x.title = 'Dismiss'; x.setAttribute('aria-label', 'Dismiss message');
+      x.addEventListener('click', () => { bannerEl.hidden = true; });
+      const body = document.createElement('div');
+      body.className = 'paper-banner-body';
+      bannerEl.append(x, body);
       document.body.appendChild(bannerEl);
     }
-    bannerEl.style.display = '';
-    bannerEl.style.background = level === 'info' ? '#2b5797' : '#b3261e';
-    bannerEl.style.color = '#fff';
-    bannerEl.lastChild.textContent = text;
+    bannerEl.hidden = false;
+    bannerEl.className = 'paper-banner ' + (isInfo ? 'info' : 'error');
+    bannerEl.setAttribute('role', isInfo ? 'status' : 'alert');
+    // An icon and a word, so the level never depends on colour alone.
+    bannerEl.lastChild.textContent = (isInfo ? '\u2139 ' : '\u26a0 Problem: ') + text;
   }
 
   window.addEventListener('message', (e) => {
+    if (!isHostMessage(e, window)) return;
     const m = e.data;
-    if (!m) return;
-    if (m.type === 'banner') { setBanner(m.text, m.level); return; }
+    if (m.type === 'banner') { setBanner(typeof m.text === 'string' ? m.text : '', m.level); return; }
     if (m.type === 'pdf') { showPdf(m); return; }
-    if (m.type === 'html') { showHtml(m); return; }
-    if (m.type !== 'render') return;
+    if (m.type !== 'render' || typeof m.html !== 'string') return;
     seq++;
     if (mode === 'pdf') { savePdfState(); closePdf(); setMode('md'); }
-    else if (mode === 'html') setMode('md');
     const key = m.key || currentKey;
     const sameDoc = key === currentKey;
-    if (!sameDoc) scrolls.set(currentKey, window.scrollY);
+    if (!sameDoc) { scrolls.set(currentKey, window.scrollY); figCache.clear(); }
+    else for (const k of figCache.keys()) if (!figVersioned(k)) figCache.delete(k); // may have changed on disk
     const y = sameDoc ? window.scrollY : (scrolls.get(key) || 0);
     content.innerHTML = m.html;
     currentKey = key;
@@ -471,6 +578,12 @@
   // ---- Selection and copy (md, LaTeX preview, PDF text layers) ----
   const selText = () => { const s = window.getSelection(); return s ? s.toString() : ''; };
   document.addEventListener('keydown', (e) => {
+    if (mode === 'pdf' && pdf && (e.metaKey || e.ctrlKey) && !e.altKey) {
+      const zk = e.key;
+      if (zk === '+' || zk === '=') { e.preventDefault(); setZoom(pdf.zoom * 1.2); return; }
+      if (zk === '-' || zk === '_') { e.preventDefault(); setZoom(pdf.zoom / 1.2); return; }
+      if (zk === '0') { e.preventDefault(); setZoom(1); return; }
+    }
     if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
     const k = (e.key || '').toLowerCase();
     const tag = e.target && e.target.tagName;
@@ -500,14 +613,17 @@
   });
 
   document.addEventListener('click', (e) => {
-    if (selText()) return; // a drag that ended on a link made a selection: do not follow the link
     const a = e.target.closest && e.target.closest('a[href]');
     if (!a) return;
+    e.preventDefault(); // always: the webview must never navigate by itself
+    const sel = window.getSelection();
+    // A drag that ended on this link made a selection: do not follow the link.
+    if (sel && !sel.isCollapsed && sel.containsNode(a, true)) return;
     const href = a.getAttribute('href');
-    e.preventDefault();
     if (href.startsWith('#')) {
-      const el = document.getElementById(decodeURIComponent(href.slice(1)));
+      const el = href.length > 1 && resolveAnchor(href.slice(1), (id) => document.getElementById(id), (n) => content.contains(n));
       if (el) el.scrollIntoView();
+      else if (href === '#') window.scrollTo(0, 0);
     } else {
       vscode.postMessage({ type: 'link', href });
     }

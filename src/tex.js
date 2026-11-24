@@ -1777,7 +1777,7 @@ async function convert(text, opts) {
     stats.unknownTop = [...stats.unknown.entries()].sort((a, b2) => b2[1] - a[1]).slice(0, 15);
     stats.unknownEnvTop = [...stats.unknownEnvs.entries()].sort((a, b2) => b2[1] - a[1]).slice(0, 10);
     if (html.length > (opts.maxHtml || Math.max(32e6, 100 * st.srcLen))) throw bail('the preview is too large');
-    if (!html.replace(/<[^>]*>/g, '').trim() && !/<(?:img|svg)[\s>]/.test(html)) html = '<p class="tex-note">(This LaTeX file has no visible text.)</p>' + html;
+    if (!stripTags(html).trim() && !/<(?:img|svg)[\s>]/.test(html)) html = '<p class="tex-note">(This LaTeX file has no visible text.)</p>' + html;
     return { html: '<div class="tex-doc">' + html + '</div>', stats };
   } catch (e) {
     const stats = conv ? conv.stats : {}; stats.error = String(e && e.message); stats.ms = Date.now() - t0;
@@ -1788,5 +1788,8 @@ async function convert(text, opts) {
     return { html: '<p class="tex-note">LaTeX preview failed (' + esc(e && e.message) + '). The source is shown below.</p><pre>' + esc(text) + '</pre>', stats };
   }
 }
+
+// Remove tags until none are left (used only to test whether a document has any visible text).
+function stripTags(h) { let p; do { p = h; h = h.replace(/<[^>]*>/g, ''); } while (h !== p); return h; }
 
 module.exports = { texToHtml };

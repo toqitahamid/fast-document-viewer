@@ -7,7 +7,7 @@ const doc = (body, pre) => '\\documentclass{article}\n' + (pre || '') + '\\title
 const conv = (body, pre, files) => texToHtml(doc(body, pre), {
   readFile: async (p) => { const k = String(p).replace(/^\.\//, ''); const f = files || {}; return f[k] ?? f[k + '.tex'] ?? null; },
 });
-const text = (h) => h.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ');
+const text = (h) => { let p; do { p = h; h = h.replace(/<[^>]*>/g, ''); } while (h !== p); return h.replace(/\s+/g, ' '); };
 
 test('title, author, abstract, numbered sections', async () => {
   const { html } = await conv('\\section{Intro}x\\subsection{Sub}y');

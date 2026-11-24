@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - name: Package the extension
+        run: npx --yes @vscode/vsce package -o fast-document-viewer.vsix
+      - name: Check the package size
+        run: |
+          size=$(stat -c %s fast-document-viewer.vsix)
+          echo "vsix size: $size bytes"
+          test "$size" -lt 5000000
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: fast-document-viewer.vsix

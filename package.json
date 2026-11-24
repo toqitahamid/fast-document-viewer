@@ -164,5 +164,10 @@
         }
       ]
     }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check": "node --check extension.js && node --check src/render.js && node --check src/tex.js && node --check src/texroot.js && node --check src/texcompile.js && node --check media/main.js",
+    "package": "vsce package"
   }
 }

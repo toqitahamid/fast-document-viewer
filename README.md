@@ -119,6 +119,12 @@ A root file can set TeX code that runs before it, like `xelatex "\def\x{..}\inpu
 
 Compile mode passes them to latexmk with `-usepretex`.
 
+## Side-by-side and live reload
+
+With `replaceTextTab` on, each editor column has its own viewer panel. **Open to the Side** makes a second viewer in the new column and leaves the first one alone.
+
+A shown `.md`, `.tex`, `.html` or `.pdf` file reloads by itself when another process changes it (for example a rebuilt PDF). The extension checks the file's size and modification time every 1.5 s and reloads once the write has finished. Scroll position and zoom stay.
+
 ## Settings
 
 - `paperMd.customCss` (string): CSS added after the built-in paper style.

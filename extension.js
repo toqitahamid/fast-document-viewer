@@ -182,14 +182,16 @@ class Provider {
 // Mode 2: one panel that follows the active .md text editor. Only the first open
 // pays for the webview; later files are a postMessage (tens of ms).
 class FollowPanel {
-  constructor(ctx) {
+  constructor(ctx, asText) {
     this.ctx = ctx;
     this.panel = undefined;
     this.doc = undefined;
+    this.watch = new Map(); // 'panel' | 'html' -> { key, sig, pending } for change polling
+    this.lastSaveAt = 0;
     this.current = undefined; // { kind: 'md' | 'tex' | 'pdf' | 'html', uri } of the file now shown
     this.timer = undefined;
     this.userClosed = false;
-    this.asText = new Set(); // documents the user chose to read as text
+    this.asText = asText || new Set(); // documents the user chose to read as text (shared by all panels)
     this.htmlPanel = new HtmlPanel(ctx);
     this.pdfBusy = new Set(); // PDF keys being loaded (re-entry guard)
     this.lastPdf = { key: '', at: 0 }; // duplicate guard for tab events
@@ -305,7 +307,7 @@ class FollowPanel {
 
   // A .tex/.sty/.cls/.bib file was saved: recompile the root whose folder tree holds it.
   async compileOnSave(d) {
-    if (!this.compileMode() || !/\.(tex|sty|cls|bib)$/i.test(d.uri.path)) return;
+    if (!this.panel || !this.compileMode() || !/\.(tex|sty|cls|bib)$/i.test(d.uri.path)) return;
     let root = this.compileRoot;
     if (!root || !inRoots([dirOf(root)], d.uri)) {
       if (!isTex(d.uri)) return;
@@ -518,10 +520,10 @@ class FollowPanel {
   }
 
   // Show a PDF in the follow panel, then close its placeholder tab.
-  async showPdf(uri, column) {
+  async showPdf(uri, column, force) {
     const key = uri.toString();
     const now = Date.now();
-    if (this.pdfBusy.has(key) || (this.lastPdf.key === key && now - this.lastPdf.at < 1500)) return;
+    if (this.pdfBusy.has(key) || (!force && this.lastPdf.key === key && now - this.lastPdf.at < 1500)) return;
     this.pdfBusy.add(key);
     const name = uri.path.split('/').pop();
     try {
@@ -576,6 +578,7 @@ class FollowPanel {
   }
 
   onDocSave(d) {
+    this.lastSaveAt = Date.now();
     if (isTex(d.uri)) { this.rootCache.clear(); this.texCache.clear(); }
     this.compileOnSave(d).catch((e) => log('tex compile on save: ' + (e && e.message)));
     const h = this.htmlPanel;
@@ -626,6 +629,46 @@ class FollowPanel {
     if (replace) this.closeTextTabs(doc.uri);
   }
 
+  // Files rebuilt or edited by another process raise no save event. Poll the shown
+  // file's size and mtime; reload once it has been stable for one poll (write finished).
+  async pollFiles() {
+    if (this.polling) return;
+    this.polling = true;
+    try {
+      const targets = [];
+      if (this.panel && this.panel.visible && this.current) targets.push({ own: 'panel', uri: this.current.uri, kind: this.current.kind });
+      const h = this.htmlPanel;
+      if (h.panel && h.panel.visible && h.uri) targets.push({ own: 'html', uri: h.uri, kind: 'html' });
+      for (const t of targets) {
+        const key = t.own + '|' + t.uri.toString();
+        let st;
+        try { st = await vscode.workspace.fs.stat(t.uri); } catch (e) { continue; }
+        const sig = st.mtime + ':' + st.size;
+        const w = this.watch.get(t.own);
+        if (!w || w.key !== key) { this.watch.set(t.own, { key, sig, pending: false }); continue; }
+        if (sig !== w.sig) { w.sig = sig; w.pending = true; continue; }
+        if (w.pending) { w.pending = false; await this.reloadFile(t).catch((e) => log('reload: ' + (e && e.message))); }
+      }
+    } finally { this.polling = false; }
+  }
+
+  async reloadFile(t) {
+    const uri = t.uri;
+    const key = uri.toString();
+    const name = uri.path.split('/').pop();
+    if (t.kind !== 'pdf' && Date.now() - this.lastSaveAt < 5000) return; // an editor save handles it
+    log(`${name}: changed on disk, reloading`);
+    if (t.kind === 'pdf') { this.lastPdf = { key: '', at: 0 }; await this.showPdf(uri, undefined, true); return; }
+    const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === key);
+    if (open && open.isDirty) return; // live edits already update the view
+    const isTexFile = isTex(uri);
+    if (isTexFile) { this.rootCache.clear(); this.texCache.clear(); }
+    if (t.kind === 'tex' && isTexFile && this.compileMode()) { this.compileRootNow(this.compileRoot || uri, false); return; }
+    const text = Buffer.from(await vscode.workspace.fs.readFile(uri)).toString('utf8');
+    if (t.kind === 'html') { this.htmlPanel.show(uri, text, undefined, true); return; }
+    this.showDoc({ uri, getText: () => text });
+  }
+
   onDocClose(d) { this.asText.delete(d.uri.toString()); }
 
   onDocChange(e) {
@@ -636,14 +679,50 @@ class FollowPanel {
   }
 }
 
+// Several follow panels: with replaceTextTab on, each editor column gets its own panel,
+// so "Open to the Side" makes a second viewer and leaves the first one alone.
+class Manager {
+  constructor(ctx) {
+    this.ctx = ctx;
+    this.asText = new Set();
+    this.list = [new FollowPanel(ctx, this.asText)];
+  }
+  texMode() { return this.list[0].texMode(); }
+  at(col) {
+    const L = this.list;
+    if (!col || !L[0].replaceMode()) return L[0];
+    const hit = L.find((f) => (f.panel && f.panel.viewColumn === col) || (f.htmlPanel.panel && f.htmlPanel.panel.viewColumn === col));
+    if (hit) return hit;
+    const idle = L.find((f) => !f.panel && !f.htmlPanel.panel);
+    if (idle) return idle;
+    const f = new FollowPanel(this.ctx, this.asText);
+    L.push(f);
+    return f;
+  }
+  active() {
+    return this.list.find((f) => (f.panel && f.panel.active) || (f.htmlPanel.panel && f.htmlPanel.panel.active)) || this.list[0];
+  }
+  onEditorChange(ed) { if (ed) this.at(ed.viewColumn).onEditorChange(ed); }
+  onDocChange(e) { for (const f of this.list) f.onDocChange(e); }
+  onDocClose(d) { this.list[0].onDocClose(d); }
+  onDocSave(d) { for (const f of this.list) f.onDocSave(d); }
+  checkTabs() {
+    const g = vscode.window.tabGroups.activeTabGroup;
+    this.at(g && g.viewColumn).checkTabs();
+  }
+  poll() { for (const f of this.list) f.pollFiles(); }
+}
+
 function activate(ctx) {
   const ta = Date.now();
-  const follow = new FollowPanel(ctx);
+  const follow = new Manager(ctx);
+  const pollTimer = setInterval(() => follow.poll(), 1500);
   const activeMd = () => {
     const ed = vscode.window.activeTextEditor;
     return ed && (isMd(ed.document.uri) || (isTex(ed.document.uri) && follow.texMode())) ? ed.document : undefined;
   };
   ctx.subscriptions.push(
+    { dispose: () => clearInterval(pollTimer) },
     vscode.workspace.onDidOpenTextDocument((d) => {
       if (isMd(d.uri)) openTimes.set(d.uri.toString(), Date.now());
     }),
@@ -657,30 +736,33 @@ function activate(ctx) {
       follow.checkTabs();
     }),
     vscode.window.tabGroups.onDidChangeTabGroups(() => follow.checkTabs()),
-    vscode.commands.registerCommand('paperMd.openFollowPanel', () => follow.open(activeMd(), true)),
+    vscode.commands.registerCommand('paperMd.openFollowPanel', () => follow.active().open(activeMd(), true)),
     vscode.commands.registerCommand('paperMd.recompileTex', async () => {
+      const F = follow.active();
       const ed = vscode.window.activeTextEditor;
-      let root = follow.compileRoot;
+      let root = F.compileRoot;
       if (ed && isTex(ed.document.uri)) {
-        const roots = await follow.findTexRoots(ed.document.uri, ed.document.getText());
+        const roots = await F.findTexRoots(ed.document.uri, ed.document.getText());
         root = roots.length ? ed.document.uri.with({ path: roots[0] }) : ed.document.uri;
       }
       if (!root) { vscode.window.showInformationMessage('Paper MD: open a .tex file first.'); return; }
-      if (follow.compileRoot && follow.compileRoot.toString() !== root.toString()) follow.compileRoot = root;
-      follow.compileRootNow(root, true);
+      if (F.compileRoot && F.compileRoot.toString() !== root.toString()) F.compileRoot = root;
+      F.compileRootNow(root, true);
     }),
     vscode.commands.registerCommand('paperMd.openTexLog', () => {
-      const p = follow.lastLog || (follow.compileRoot && require('path').join(follow.cacheDir(follow.compileRoot), 'out', follow.compileRoot.path.split('/').pop().replace(/\.tex$/i, '.log')));
+      const F = follow.active();
+      const p = F.lastLog || (F.compileRoot && require('path').join(F.cacheDir(F.compileRoot), 'out', F.compileRoot.path.split('/').pop().replace(/\.tex$/i, '.log')));
       if (p && require('fs').existsSync(p)) vscode.window.showTextDocument(vscode.Uri.file(p), { preview: true });
       else { log('tex log: none yet'); if (channel) channel.show(true); }
     }),
     vscode.commands.registerCommand('paperMd.openAsText', (arg) => {
-      const h = follow.htmlPanel;
+      const F = follow.active();
+      const h = F.htmlPanel;
       let uri = arg instanceof vscode.Uri ? arg : undefined;
       let col;
       // Panels first: activeTextEditor can be stale while a webview has focus.
-      if (!uri && follow.panel && follow.panel.active && follow.current && follow.current.kind !== 'pdf') {
-        uri = follow.current.uri; col = follow.panel.viewColumn;
+      if (!uri && F.panel && F.panel.active && F.current && F.current.kind !== 'pdf') {
+        uri = F.current.uri; col = F.panel.viewColumn;
       } else if (!uri && h.panel && h.panel.active && h.uri) {
         uri = h.uri; col = h.panel.viewColumn;
       }
@@ -699,8 +781,9 @@ function activate(ctx) {
       const doc = ed && (!uri || ed.document.uri.toString() === uri.toString()) ? ed.document : undefined;
       if (!doc) return;
       follow.asText.delete(doc.uri.toString());
-      follow.userClosed = false;
-      follow.onEditorChange(ed);
+      const F = follow.at(ed.viewColumn);
+      F.userClosed = false;
+      F.onEditorChange(ed);
     }),
   );
   // A Markdown text editor may already be active when the extension starts.
@@ -709,4 +792,4 @@ function activate(ctx) {
   log(`activated in ${Date.now() - ta} ms`);
 }
 function deactivate() {}
-module.exports = { activate, deactivate };
+module.exports = { activate, deactivate, Manager };

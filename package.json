@@ -1,6 +1,6 @@
 {
   "name": "paper-md-viewer",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "description": "Fast read-only Markdown viewer with a printed-paper look and KaTeX math.",
   "main": "./extension.js",
   "license": "MIT",

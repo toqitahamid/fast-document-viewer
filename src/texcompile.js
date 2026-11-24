@@ -304,6 +304,9 @@ function parseLog(logText, hint) {
     const f = mp[1]; const pkg = f.replace(/\.(sty|cls)$/, '');
     return { text, missing: f, banner: `Missing package ${f}. Install with: sudo tlmgr install ${pkg} (BasicTeX). Or run 'tlmgr search --global --file ${f}' to find the package name.` };
   }
+  if (/\\def\\[A-Za-z@]+|\bpass (?:the )?[\w ]*(?:path|file|argument)|command[- ]line/i.test(lines.slice(at, at + 4).join('\n'))) {
+    return { text, needsArgs: true, banner: 'This template needs arguments before it can compile. Add lines like  % !TEX def = \\def\\name{value}  in the first 30 lines of the root file. The template says:\n' + text };
+  }
   return { text, banner: text };
 }
 

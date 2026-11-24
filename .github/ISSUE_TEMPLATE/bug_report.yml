@@ -47,5 +47,5 @@ body:
     id: log
     attributes:
       label: Output log
-      description: Open View > Output and choose "Paper MD" in the dropdown. Paste the text here.
+      description: Open View > Output and choose "Fast Document Viewer" in the dropdown. Paste the text here.
       render: text

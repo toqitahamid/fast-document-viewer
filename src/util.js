@@ -106,7 +106,29 @@ function restorePdfAssociation(cur, prev) {
   return Object.keys(out).length ? out : undefined;
 }
 
+// ---- migration from the old `paperMd.*` IDs (up to 0.8.2) to `fastDocViewer.*` ----
+const OLD_PREFIX = 'paperMd';
+const NEW_PREFIX = 'fastDocViewer';
+const SETTING_SUFFIXES = ['followPanel.autoOpen', 'followPanel.replaceTextTab', 'pdf.enabled', 'html.enabled', 'tex.enabled',
+  'tex.mode', 'tex.texPath', 'tex.maxMirrorMB', 'customCss', 'allowRemoteImages', 'theme'];
+// Rewrite the custom-editor ID in `workbench.editorAssociations` (object or array form). Returns { value, changed }.
+function migrateAssociations(cur) {
+  const oldId = OLD_PREFIX + '.viewer', newId = NEW_PREFIX + '.viewer';
+  if (Array.isArray(cur)) {
+    let changed = false;
+    const value = cur.map((e) => { if (e && e.viewType === oldId) { changed = true; return { ...e, viewType: newId }; } return e; });
+    return { value: changed ? value : cur, changed };
+  }
+  if (cur && typeof cur === 'object') {
+    let changed = false; const value = {};
+    for (const k of Object.keys(cur)) { if (cur[k] === oldId) { value[k] = newId; changed = true; } else value[k] = cur[k]; }
+    return { value: changed ? value : cur, changed };
+  }
+  return { value: cur, changed: false };
+}
+
 module.exports = {
+  OLD_PREFIX, NEW_PREFIX, SETTING_SUFFIXES, migrateAssociations,
   isRealScheme, makeNonce, escHtml, stripStyleEnd, stripScriptEnd, shellCsp, htmlPageCsp, injectIntoHead, buildHtmlPage,
   pathUnder, inRoots, uniqueBy, mirrorHit, recentlySaved, pruneSaves, SAVE_WINDOW_MS, MAX_POST_BYTES, tooBigToPost, hasTabFor,
   addPdfAssociation, restorePdfAssociation,

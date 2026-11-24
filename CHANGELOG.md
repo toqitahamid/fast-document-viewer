@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.9.0]
+
+### Changed
+
+- The settings, commands and custom editor now use the `fastDocViewer.*` prefix (was `paperMd.*`). Your old values are copied over automatically on first run, including the `fastDocViewer.viewer` entry in `workbench.editorAssociations`. VS Code cannot delete the old keys, so remove the old `paperMd.*` lines from `settings.json` yourself. Keybindings that use the old `paperMd.*` command IDs need the new ID.
+- The output channel is now called "Fast Document Viewer". User-facing messages say Fast Document Viewer instead of Paper MD.
+- The README shows the icon.
+
 ## [0.8.2]
 
 ### Fixed
@@ -10,7 +18,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Changed
 
-- The printed-paper page is the default again. Following a dark editor theme is now opt-in with `paperMd.theme: "auto"`. High-contrast themes always get a high-contrast page.
+- The printed-paper page is the default again. Following a dark editor theme is now opt-in with `fastDocViewer.theme: "auto"`. High-contrast themes always get a high-contrast page.
 
 ## [0.8.1]
 
@@ -22,7 +30,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - Tightened the Content Security Policy of the viewer pages.
 - HTML in LaTeX previews is escaped.
 - The LaTeX preview no longer reads files by absolute path or from more than two folders above the root.
-- Compile mode and the `paperMd.tex.mode` and `paperMd.tex.texPath` settings are limited in untrusted workspaces. `paperMd.customCss` and `paperMd.tex.texPath` are only read from user settings.
+- Compile mode and the `fastDocViewer.tex.mode` and `fastDocViewer.tex.texPath` settings are limited in untrusted workspaces. `fastDocViewer.customCss` and `fastDocViewer.tex.texPath` are only read from user settings.
 
 ### Fixed
 
@@ -37,16 +45,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - `Fast Document Viewer: Turn On All Viewers`, a one-click way to turn on every viewer.
 - A "Get started" walkthrough.
-- Optional dark theme (`paperMd.theme`).
+- Optional dark theme (`fastDocViewer.theme`).
 - Accessibility improvements.
-- Automatic TeX location per platform when `paperMd.tex.texPath` is empty (now the default).
-- `paperMd.allowRemoteImages` setting to block remote https images.
+- Automatic TeX location per platform when `fastDocViewer.tex.texPath` is empty (now the default).
+- `fastDocViewer.allowRemoteImages` setting to block remote https images.
 - Skipped files are reported in compile mode.
 - All command titles use the category "Fast Document Viewer". Command and setting IDs are unchanged.
 
 ## [0.8.0]
 
-- Renamed from Paper MD Viewer to Fast Document Viewer. The extension ID changed; `paperMd.*` settings still work.
+- Renamed from Paper MD Viewer to Fast Document Viewer. The extension ID changed.
 - LaTeX compile mode with `latexmk`, and PDF and HTML viewing.
 
 ## 0.7.6 and earlier

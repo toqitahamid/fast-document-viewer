@@ -37,7 +37,7 @@ Tests live in `test/*.test.js` and use `node:test` and `node:assert`. Pick the f
 
 ## Code layout
 
-See [AGENTS.md](AGENTS.md) for the file map and project rules. Setting, command and custom-editor IDs keep the `paperMd.` prefix.
+See [AGENTS.md](AGENTS.md) for the file map and project rules. Setting, command and custom-editor IDs keep the `fastDocViewer.` prefix.
 
 ## Security
 

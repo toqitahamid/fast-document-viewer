@@ -2,11 +2,11 @@
 // All user-visible strings in one place so they can be translated later.
 module.exports = {
   htmlRestricted: 'Scripts in this HTML file run in a restricted viewer (network blocked).',
-  openTexFirst: 'Paper MD: open a .tex file first.',
-  noTextSource: 'Paper MD: no text file to edit here (a plain PDF has no text source).',
+  openTexFirst: 'Fast Document Viewer: open a .tex file first.',
+  noTextSource: 'Fast Document Viewer: no text file to edit here (a plain PDF has no text source).',
   compiling: 'Compiling…',
   pdfTooBig: (name, mb, maxMb) => `${name} is ${mb} MB, which is over the ${maxMb} MB limit of the viewer. Open it with another PDF viewer.`,
-  mirrorTooBig: (name, mb, maxMB) => `The folder of ${name} holds ${mb} MB of TeX-related files. This is over paperMd.tex.maxMirrorMB (${maxMB}). Raise the setting or move the paper to a smaller folder.`,
+  mirrorTooBig: (name, mb, maxMB) => `The folder of ${name} holds ${mb} MB of TeX-related files. This is over fastDocViewer.tex.maxMirrorMB (${maxMB}). Raise the setting or move the paper to a smaller folder.`,
   renderError: (msg) => 'Render error: ' + msg,
   rendering: 'Rendering LaTeX...',
   emptyPanel: 'Open a Markdown file to show it here.',
@@ -17,6 +17,7 @@ module.exports = {
   fitWidth: 'Fit width',
   actualSize: 'Actual size',
   texLogTitle: 'Open the TeX log',
+  migrated: (n) => `Fast Document Viewer: copied ${n} setting(s) from the old "paperMd.*" names to "fastDocViewer.*". You can delete the old paperMd lines from settings.json.`,
   firstRun: 'Fast Document Viewer is installed. Turn on the viewers?',
   turnOn: 'Turn on',
   openGuide: 'Open guide',
@@ -25,5 +26,5 @@ module.exports = {
   reloadWindow: 'Reload Window',
   undo: 'Undo',
   undone: 'Fast Document Viewer: previous settings restored.',
-  linkFailed: (href) => 'Paper MD: could not open ' + href,
+  linkFailed: (href) => 'Fast Document Viewer: could not open ' + href,
 };

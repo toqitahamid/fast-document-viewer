@@ -1,10 +1,10 @@
 # LaTeX support
 
-Fast Document Viewer shows `.tex` files in two modes: an instant HTML preview that needs no TeX install, and a compile mode that builds the real PDF with `latexmk`. Both need `paperMd.followPanel.replaceTextTab`, `paperMd.followPanel.autoOpen` and `paperMd.tex.enabled`. Set `"paperMd.tex.mode": "compile"` for compile mode.
+Fast Document Viewer shows `.tex` files in two modes: an instant HTML preview that needs no TeX install, and a compile mode that builds the real PDF with `latexmk`. Both need `fastDocViewer.followPanel.replaceTextTab`, `fastDocViewer.followPanel.autoOpen` and `fastDocViewer.tex.enabled`. Set `"fastDocViewer.tex.mode": "compile"` for compile mode.
 
 ## Preview mode
 
-Needs `replaceTextTab`, `autoOpen` and `paperMd.tex.enabled`.
+Needs `replaceTextTab`, `autoOpen` and `fastDocViewer.tex.enabled`.
 
 `.tex` files open as an HTML approximation of the compiled paper. No TeX engine is used, so this is a preview, not the PDF: page breaks, float positions, fonts and the exact reference style differ.
 
@@ -24,27 +24,27 @@ What it converts:
 
 ## Compile mode
 
-Set `"paperMd.tex.mode": "compile"` (with the LaTeX settings above) to see the real PDF for any design: CVs, papers, custom `.sty` and `.cls` files. The HTML preview stays the default and needs no TeX.
+Set `"fastDocViewer.tex.mode": "compile"` (with the LaTeX settings above) to see the real PDF for any design: CVs, papers, custom `.sty` and `.cls` files. The HTML preview stays the default and needs no TeX.
 
 How it works:
 
 1. When a `.tex` file becomes active, the extension finds its root document, using the same rules as the preview.
 2. It shows the cached PDF of that root at once, even if out of date. If there is none yet, it shows the HTML preview with a "Compiling..." note.
-3. It copies the root's folder tree to local disk (`globalStorageUri`, one folder per root). **Nothing is written into your project.** Only files whose size or modification time changed are copied. It copies TeX-related files only (`.tex .sty .cls .bst .bib .bbl`, images, PDFs, fonts and similar), skips `.git`, `node_modules`, `__pycache__`, `.venv` and names that start with `.`, skips files over 25 MB, and goes at most 6 folders deep. Folders outside the root that the sources reference, up to 4 levels above it (such as `../../fonts/`), are copied too. If the copy would exceed `paperMd.tex.maxMirrorMB`, it stops and shows the size in the banner.
+3. It copies the root's folder tree to local disk (`globalStorageUri`, one folder per root). **Nothing is written into your project.** Only files whose size or modification time changed are copied. It copies TeX-related files only (`.tex .sty .cls .bst .bib .bbl`, images, PDFs, fonts and similar), skips `.git`, `node_modules`, `__pycache__`, `.venv` and names that start with `.`, skips files over 25 MB, and goes at most 6 folders deep. Folders outside the root that the sources reference, up to 4 levels above it (such as `../../fonts/`), are copied too. If the copy would exceed `fastDocViewer.tex.maxMirrorMB`, it stops and shows the size in the banner.
 4. It runs `latexmk -pdf|-pdfxe|-pdflua -interaction=nonstopmode -file-line-error -halt-on-error -synctex=1` in the copy, with a 180 s limit and one compile per root at a time. A save during a compile triggers one more run when it ends.
 5. The new PDF replaces the old one in the panel. Scroll position and zoom are kept.
 
 **Engine choice.** `fontspec`, `unicode-math`, `xeCJK`, `polyglossia` or `% !TEX program = xelatex` select XeLaTeX. `luacode`, `\directlua`, `luatexja` or `% !TEX program = lualatex` select LuaLaTeX. Everything else uses pdfLaTeX. Bibliographies use BibTeX as latexmk does. For biblatex with biber, install biber or keep a current `.bbl` next to the root.
 
-**Rebuilds** run when you save a `.tex`, `.sty`, `.cls` or `.bib` file in the root's folder tree. The status bar shows `TeX: compiling...`, `TeX: ok 2.3 s` or `TeX: error`. Files that were skipped while copying (too large, too deep or unreadable) are listed in the banner and the **Paper MD** output. The first error appears as a red banner over the last good PDF, and the full log path goes to the **Paper MD** output channel.
+**Rebuilds** run when you save a `.tex`, `.sty`, `.cls` or `.bib` file in the root's folder tree. The status bar shows `TeX: compiling...`, `TeX: ok 2.3 s` or `TeX: error`. Files that were skipped while copying (too large, too deep or unreadable) are listed in the banner and the **Fast Document Viewer** output. The first error appears as a red banner over the last good PDF, and the full log path goes to the **Fast Document Viewer** output channel.
 
 **Requirements**
 
 - TeX must be installed on your **local** machine, not the remote host: MacTeX or BasicTeX on macOS, MiKTeX or TeX Live on Windows, `sudo apt install texlive-full latexmk` on Linux.
-- `paperMd.tex.texPath` is empty by default, which means auto-detect for your platform (macOS: `/Library/TeX/texbin`; Linux and Windows: the standard `PATH`). Set it only if TeX lives somewhere unusual. It is read from user settings only.
+- `fastDocViewer.tex.texPath` is empty by default, which means auto-detect for your platform (macOS: `/Library/TeX/texbin`; Linux and Windows: the standard `PATH`). Set it only if TeX lives somewhere unusual. It is read from user settings only.
 - Compile mode is disabled in untrusted workspaces. Trust the workspace to use it.
 - A missing package shows `Missing package x.sty. Install with: sudo tlmgr install x`. With BasicTeX, `tlmgr search --global --file x.sty` finds the package name.
-- Disk use is one local copy of the root's folder tree (up to `paperMd.tex.maxMirrorMB`) plus build files, per root. Delete the extension's `globalStorage` folder to clear them.
+- Disk use is one local copy of the root's folder tree (up to `fastDocViewer.tex.maxMirrorMB`) plus build files, per root. Delete the extension's `globalStorage` folder to clear them.
 - LaTeX Workshop, if installed, may also build on save. The builds use different folders and do not clash, but they use CPU twice.
 - Not done yet: SyncTeX jumps between source and PDF.
 

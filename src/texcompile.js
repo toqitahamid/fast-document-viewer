@@ -500,7 +500,7 @@ function compile(rootFile, cacheDir, o) {
   return new Promise((resolve) => {
     let out = ''; let settled = false; let timedOut = false; let child; let timer;
     const done = (r) => { if (settled) return; settled = true; clearTimeout(timer); if (child) live.delete(child); resolve(Object.assign({ engine, logPath, pdfPath, ms: Date.now() - t0, warnings }, r)); };
-    const noTex = `TeX not found. Set paperMd.tex.texPath to the folder that holds latexmk and ${engine} (for example /Library/TeX/texbin on macOS).`;
+    const noTex = `TeX not found. Set fastDocViewer.tex.texPath to the folder that holds latexmk and ${engine} (for example /Library/TeX/texbin on macOS).`;
     try {
       child = spawn('latexmk', args, { cwd, env, detached: platform !== 'win32', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (e) { done({ ok: false, banner: noTex + warnText() }); return; }

@@ -3,6 +3,7 @@
   "version": "0.8.1",
   "description": "%extension.description%",
   "main": "./extension.js",
+  "icon": "media/icon.png",
   "license": "MIT",
   "dependencies": {
     "@vscode/markdown-it-katex": "^1.1.2",

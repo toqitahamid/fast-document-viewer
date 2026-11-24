@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.9.1]
+
+### Fixed
+
+- The bundled KaTeX stylesheet now matches KaTeX 0.19 (a dependency bump had left the old stylesheet in place). A test fails if they drift apart again.
+
 ## [0.9.0]
 
 ### Changed

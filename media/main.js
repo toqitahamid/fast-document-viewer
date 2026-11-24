@@ -23,11 +23,20 @@
     return out;
   }
 
-  // Only the extension host (the parent frame, or this window) may drive the viewer;
-  // a frame inside the page must not.
-  function isHostMessage(e, self, parent) {
+  // Messages from a frame INSIDE the page (a child or deeper descendant frame, such as an iframe in a
+  // Markdown file) must not drive the viewer. Everything else is the host: VS Code relays host
+  // messages through its own frames, which differ between editor versions, so they are accepted.
+  function isHostMessage(e, self) {
     if (!e || !e.data || typeof e.data !== 'object') return false;
-    return !e.source || e.source === self || e.source === parent;
+    let w = e.source;
+    for (let i = 0; w && i < 32; i++) {
+      let up;
+      try { up = w.parent; } catch (err) { return false; } // cross-origin access denied: treat as foreign
+      if (!up || up === w) return true; // reached a top window without passing through this one
+      if (up === self) return false; // this frame lies inside our own window
+      w = up;
+    }
+    return true;
   }
 
   // Indices of rendered pages that should lose their canvas: outside the window around the
@@ -78,6 +87,7 @@
   if (typeof acquireVsCodeApi !== 'function') return;
 
   const vscode = acquireVsCodeApi();
+  if (document.body.dataset.theme === 'auto') document.body.classList.add('fdv-follow-theme');
   const scriptNonce = document.currentScript && document.currentScript.nonce;
   const content = document.getElementById('content');
   const t = { origin: performance.timeOrigin, dom: Date.now() };
@@ -546,7 +556,7 @@
   }
 
   window.addEventListener('message', (e) => {
-    if (!isHostMessage(e, window, window.parent)) return;
+    if (!isHostMessage(e, window)) return;
     const m = e.data;
     if (m.type === 'banner') { setBanner(typeof m.text === 'string' ? m.text : '', m.level); return; }
     if (m.type === 'pdf') { showPdf(m); return; }

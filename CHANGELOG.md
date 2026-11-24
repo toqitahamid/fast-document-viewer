@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.8.2]
+
+### Fixed
+
+- PDFs (and files outside the workspace) could stay on the empty placeholder: the viewer now waits for the page to finish reloading after its allowed folders change, and no longer drops host messages in some editor versions.
+
+### Changed
+
+- The printed-paper page is the default again. Following a dark editor theme is now opt-in with `paperMd.theme: "auto"`. High-contrast themes always get a high-contrast page.
+
 ## [0.8.1]
 
 ### Security
@@ -27,7 +37,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - `Fast Document Viewer: Turn On All Viewers`, a one-click way to turn on every viewer.
 - A "Get started" walkthrough.
-- Dark theme.
+- Optional dark theme (`paperMd.theme`).
 - Accessibility improvements.
 - Automatic TeX location per platform when `paperMd.tex.texPath` is empty (now the default).
 - `paperMd.allowRemoteImages` setting to block remote https images.

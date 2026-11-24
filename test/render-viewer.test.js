@@ -25,14 +25,17 @@ test('toBytes rejects hostile or wrong input without allocating', () => {
   assert.throws(() => v.toBytes(new ArrayBuffer(10), 5), /too large/);
 });
 
-test('isHostMessage: only this window or the parent', () => {
-  const self = {}; const parent = {}; const child = {};
-  assert.ok(v.isHostMessage({ data: { type: 'x' }, source: parent }, self, parent));
-  assert.ok(v.isHostMessage({ data: { type: 'x' }, source: self }, self, parent));
-  assert.ok(v.isHostMessage({ data: { type: 'x' }, source: null }, self, parent));
-  assert.ok(!v.isHostMessage({ data: { type: 'x' }, source: child }, self, parent));
-  assert.ok(!v.isHostMessage({ data: null, source: parent }, self, parent));
-  assert.ok(!v.isHostMessage({ data: 'str', source: parent }, self, parent));
+test('isHostMessage: rejects frames inside the page, accepts the host', () => {
+  const self = {}; const top = {}; self.parent = top; top.parent = top;
+  const child = { parent: self }; const grandchild = { parent: child };
+  const relay = { parent: top }; // a sibling or outer relay frame
+  assert.ok(v.isHostMessage({ data: { type: 'x' }, source: top }, self));
+  assert.ok(v.isHostMessage({ data: { type: 'x' }, source: relay }, self));
+  assert.ok(v.isHostMessage({ data: { type: 'x' }, source: null }, self));
+  assert.ok(!v.isHostMessage({ data: { type: 'x' }, source: child }, self));
+  assert.ok(!v.isHostMessage({ data: { type: 'x' }, source: grandchild }, self));
+  assert.ok(!v.isHostMessage({ data: null, source: top }, self));
+  assert.ok(!v.isHostMessage({ data: 'str', source: top }, self));
 });
 
 test('pagesToEvict keeps the window and observer-visible pages', () => {

@@ -43,5 +43,9 @@
   "walkthrough.sides.title": "Read and edit side by side",
   "walkthrough.sides.desc": "Use Open to the Side to add a second viewer, or Edit as text to see the source.\n[Edit as Text](command:paperMd.openAsText)",
   "walkthrough.compile.title": "Optional: real LaTeX PDF",
-  "walkthrough.compile.desc": "Compile mode builds the real PDF with latexmk. Needs TeX installed.\n[Read the LaTeX guide](https://github.com/toqitahamid/fast-document-viewer/blob/main/docs/latex.md)"
+  "walkthrough.compile.desc": "Compile mode builds the real PDF with latexmk. Needs TeX installed.\n[Read the LaTeX guide](https://github.com/toqitahamid/fast-document-viewer/blob/main/docs/latex.md)",
+  "setting.paperMd.theme.desc": "Page style: always paper, or follow a dark editor theme.",
+  "setting.paperMd.theme.md": "Page style. `paper` always shows the light printed-paper page. `auto` shows a dark page when your editor theme is dark. High-contrast themes always get a high-contrast page.",
+  "setting.paperMd.theme.paper": "Always the light printed-paper page.",
+  "setting.paperMd.theme.auto": "Follow a dark editor theme."
 }

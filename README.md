@@ -84,6 +84,7 @@ Find them in Settings by searching `paperMd`.
 | `paperMd.tex.texPath` | `""` | Folder with `latexmk`; empty means auto-detect for your platform |
 | `paperMd.tex.maxMirrorMB` | `200` | Size limit for compile mode's local copy of the project |
 | `paperMd.allowRemoteImages` | `true` | Turn off to block remote `https:` images |
+| `paperMd.theme` | `"paper"` | `"paper"` is always the light printed page; `"auto"` goes dark in a dark editor theme |
 | `paperMd.customCss` | `""` | CSS added after the built-in style |
 
 `paperMd.customCss` and `paperMd.tex.texPath` are read from your user settings only, not from a workspace.

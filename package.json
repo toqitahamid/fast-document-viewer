@@ -1,6 +1,6 @@
 {
   "name": "fast-document-viewer",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "%extension.description%",
   "main": "./extension.js",
   "icon": "media/icon.png",
@@ -184,6 +184,21 @@
           "description": "%setting.paperMd.customCss.desc%",
           "markdownDescription": "%setting.paperMd.customCss.md%",
           "scope": "machine"
+        },
+        "paperMd.theme": {
+          "type": "string",
+          "enum": [
+            "paper",
+            "auto"
+          ],
+          "default": "paper",
+          "order": 11,
+          "enumDescriptions": [
+            "%setting.paperMd.theme.paper%",
+            "%setting.paperMd.theme.auto%"
+          ],
+          "markdownDescription": "%setting.paperMd.theme.md%",
+          "description": "%setting.paperMd.theme.desc%"
         }
       }
     },

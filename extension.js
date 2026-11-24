@@ -81,7 +81,7 @@ function shell(ctx, wv, bodyHtml, opts) {
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <style>${noStyleEnd(kcss)}</style><style>${noStyleEnd(a.paperCss)}</style>
 <style>${noStyleEnd(custom)}</style></head>
-<body data-key="${esc(opts.key || '')}" data-pdfjs="${mediaUri('pdf.min.js')}" data-pdfworker="${mediaUri('pdf.worker.min.js')}">${button}<div id="pdfbar" hidden><button id="pdf-out" title="${S.zoomOut}">&minus;</button><button id="pdf-in" title="${S.zoomIn}">+</button><button id="pdf-fit" title="${S.fitWidth}">Fit</button><button id="pdf-100" title="${S.actualSize}">100%</button><span id="pdf-page"></span></div><div id="pdf" hidden></div><div id="content" role="document" aria-label="${esc(S.contentLabel)}">${bodyHtml}</div>
+<body data-theme="${esc(vscode.workspace.getConfiguration('paperMd').get('theme') === 'auto' ? 'auto' : 'paper')}" data-key="${esc(opts.key || '')}" data-pdfjs="${mediaUri('pdf.min.js')}" data-pdfworker="${mediaUri('pdf.worker.min.js')}">${button}<div id="pdfbar" hidden><button id="pdf-out" title="${S.zoomOut}">&minus;</button><button id="pdf-in" title="${S.zoomIn}">+</button><button id="pdf-fit" title="${S.fitWidth}">Fit</button><button id="pdf-100" title="${S.actualSize}">100%</button><span id="pdf-page"></span></div><div id="pdf" hidden></div><div id="content" role="document" aria-label="${esc(S.contentLabel)}">${bodyHtml}</div>
 <script nonce="${n}">${U.stripScriptEnd(a.mainJs)}</script></body></html>`;
 }
 
@@ -227,11 +227,35 @@ class FollowPanel {
     const roots = U.uniqueBy([...rootsFor(this.ctx), ...docUris.filter(Boolean).map(dirOf)], (r) => r.toString());
     const wv = this.panel.webview;
     const cur = (wv.options.localResourceRoots || []).map((r) => r.toString()).join('|');
-    if (cur !== roots.map((r) => r.toString()).join('|')) wv.options = { ...wv.options, localResourceRoots: roots };
+    if (cur !== roots.map((r) => r.toString()).join('|')) {
+      // Changing the allowed folders makes VS Code reload the webview, which drops messages sent
+      // before the reload finishes. Hold later posts until the page reports it has loaded again.
+      this.holdPosts();
+      wv.options = { ...wv.options, localResourceRoots: roots };
+    }
     this.allowed = roots;
   }
 
-  post(msg) { if (this.panel) bg(this.panel.webview.postMessage(msg), 'postMessage'); }
+  holdPosts() {
+    if (this.reloadDone) return;
+    this.reloading = new Promise((res) => {
+      const t = setTimeout(done, 4000); // never hold forever
+      const self = this;
+      function done() { clearTimeout(t); self.reloadDone = null; self.reloading = null; res(); }
+      this.reloadDone = done;
+    });
+  }
+
+  // Called when the page sends its 'timing' message (it has loaded).
+  pageLoaded() { if (this.reloadDone) this.reloadDone(); }
+
+  post(msg) {
+    if (!this.panel) return;
+    this.sendQ = (this.sendQ || Promise.resolve()).then(() => this.reloading).then(() => {
+      if (this.panel) return this.panel.webview.postMessage(msg);
+    });
+    bg(this.sendQ, 'postMessage');
+  }
 
   // ---- compile mode (real TeX engine, see src/texcompile.js) ----
   compileMode() {
@@ -403,6 +427,7 @@ class FollowPanel {
 
     wv.onDidReceiveMessage((m) => {
       if (m.type === 'timing' && m.t) {
+        this.pageLoaded();
         log(`panel created: DOM ready ${m.t.dom - t0} ms, first paint ${m.t.paint - t0} ms (one-time cost)`);
       } else if (m.type === 'rendered') {
         log(`panel switch ${this.doc ? this.doc.uri.path.split('/').pop() : ''}: shown ${m.at - m.sent} ms after send (render ${this.lastRenderMs} ms)`);

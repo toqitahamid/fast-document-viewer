@@ -7,8 +7,8 @@ const tc = require('./src/texcompile');
 const U = require('./src/util');
 const S = require('./src/strings');
 
-const VIEW_TYPE = 'paperMd.viewer';
-const FOLLOW_TYPE = 'paperMd.follow';
+const VIEW_TYPE = 'fastDocViewer.viewer';
+const FOLLOW_TYPE = 'fastDocViewer.follow';
 const isMd = (uri) => /\.(md|markdown)$/i.test(uri.path);
 const isPdf = (uri) => /\.pdf$/i.test(uri.path);
 const isHtml = (uri) => /\.html?$/i.test(uri.path);
@@ -22,7 +22,7 @@ let channel;
 let manager; // the live Manager, for deactivate()
 const openTimes = new Map();
 function log(msg) {
-  if (!channel) channel = vscode.window.createOutputChannel('Paper MD');
+  if (!channel) channel = vscode.window.createOutputChannel('Fast Document Viewer');
   channel.appendLine(`[${new Date().toISOString().slice(11, 23)}] ${msg}`);
 }
 // Fire-and-forget a promise-like without an unhandled rejection.
@@ -72,16 +72,16 @@ function shell(ctx, wv, bodyHtml, opts) {
   const a = assets(ctx);
   const fontsBase = wv.asWebviewUri(vscode.Uri.joinPath(ctx.extensionUri, 'media', 'fonts')).toString();
   const kcss = a.katexCss.replace(/url\(fonts\//g, `url(${fontsBase}/`);
-  const custom = vscode.workspace.getConfiguration('paperMd').get('customCss') || '';
+  const custom = vscode.workspace.getConfiguration('fastDocViewer').get('customCss') || '';
   const noStyleEnd = U.stripStyleEnd;
-  const csp = U.shellCsp({ cspSource: wv.cspSource, nonce: n, allowRemoteImages: vscode.workspace.getConfiguration('paperMd').get('allowRemoteImages') !== false });
+  const csp = U.shellCsp({ cspSource: wv.cspSource, nonce: n, allowRemoteImages: vscode.workspace.getConfiguration('fastDocViewer').get('allowRemoteImages') !== false });
   const mediaUri = (f) => wv.asWebviewUri(vscode.Uri.joinPath(ctx.extensionUri, 'media', 'pdfjs', f)).toString();
   const button = opts.editButton ? `<button type="button" id="edit-btn">${S.editButton}</button>` : '';
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <style>${noStyleEnd(kcss)}</style><style>${noStyleEnd(a.paperCss)}</style>
 <style>${noStyleEnd(custom)}</style></head>
-<body data-theme="${esc(vscode.workspace.getConfiguration('paperMd').get('theme') === 'auto' ? 'auto' : 'paper')}" data-key="${esc(opts.key || '')}" data-pdfjs="${mediaUri('pdf.min.js')}" data-pdfworker="${mediaUri('pdf.worker.min.js')}">${button}<div id="pdfbar" hidden><button id="pdf-out" title="${S.zoomOut}">&minus;</button><button id="pdf-in" title="${S.zoomIn}">+</button><button id="pdf-fit" title="${S.fitWidth}">Fit</button><button id="pdf-100" title="${S.actualSize}">100%</button><span id="pdf-page"></span></div><div id="pdf" hidden></div><div id="content" role="document" aria-label="${esc(S.contentLabel)}">${bodyHtml}</div>
+<body data-theme="${esc(vscode.workspace.getConfiguration('fastDocViewer').get('theme') === 'auto' ? 'auto' : 'paper')}" data-key="${esc(opts.key || '')}" data-pdfjs="${mediaUri('pdf.min.js')}" data-pdfworker="${mediaUri('pdf.worker.min.js')}">${button}<div id="pdfbar" hidden><button id="pdf-out" title="${S.zoomOut}">&minus;</button><button id="pdf-in" title="${S.zoomIn}">+</button><button id="pdf-fit" title="${S.fitWidth}">Fit</button><button id="pdf-100" title="${S.actualSize}">100%</button><span id="pdf-page"></span></div><div id="pdf" hidden></div><div id="content" role="document" aria-label="${esc(S.contentLabel)}">${bodyHtml}</div>
 <script nonce="${n}">${U.stripScriptEnd(a.mainJs)}</script></body></html>`;
 }
 
@@ -117,7 +117,7 @@ class HtmlPanel {
     const dir = dirOf(uri);
     this.seq++;
     if (!this.panel) {
-      this.panel = vscode.window.createWebviewPanel('paperMd.html', 'Paper HTML',
+      this.panel = vscode.window.createWebviewPanel('fastDocViewer.html', 'Paper HTML',
         { viewColumn: column || vscode.ViewColumn.Active, preserveFocus: false }, this.options(uri));
       this.ctx.subscriptions.push(this.panel);
       this.panel.onDidDispose(() => { this.panel = undefined; this.uri = undefined; });
@@ -260,11 +260,11 @@ class FollowPanel {
   // ---- compile mode (real TeX engine, see src/texcompile.js) ----
   compileMode() {
     if (vscode.workspace.isTrusted === false) return false; // untrusted workspace: never run a TeX engine
-    return this.texMode() && vscode.workspace.getConfiguration('paperMd').get('tex.mode') === 'compile';
+    return this.texMode() && vscode.workspace.getConfiguration('fastDocViewer').get('tex.mode') === 'compile';
   }
 
   texPath() {
-    const c = vscode.workspace.getConfiguration('paperMd');
+    const c = vscode.workspace.getConfiguration('fastDocViewer');
     if (vscode.workspace.isTrusted === false) { const i = c.inspect('tex.texPath'); return i && i.globalValue; }
     return c.get('tex.texPath');
   }
@@ -275,7 +275,7 @@ class FollowPanel {
     if (!vscode.window.createStatusBarItem) return;
     if (!this.status) {
       this.status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment ? vscode.StatusBarAlignment.Left : 1, 0);
-      this.status.command = 'paperMd.openTexLog';
+      this.status.command = 'fastDocViewer.openTexLog';
       this.ctx.subscriptions.push(this.status);
     }
     this.status.text = text; this.status.tooltip = tip || S.texLogTitle;
@@ -343,14 +343,14 @@ class FollowPanel {
     this.setStatus('TeX: compiling…');
     this.compiler.request(key, async (o) => {
       const cache = this.cacheDir(rootUri);
-      const maxMB = vscode.workspace.getConfiguration('paperMd').get('tex.maxMirrorMB') || 200;
+      const maxMB = vscode.workspace.getConfiguration('fastDocViewer').get('tex.maxMirrorMB') || 200;
       let ex = { base: dirOf(rootUri), relRoot: '', targets: [], warnings: [] };
       try { ex = await tc.findExternal(vscode, rootUri); } catch (e) { log('tex external refs: ' + (e && e.message)); }
       this.mirrors.set(key, { rootUri, rootDir: dirOf(rootUri), base: ex.base, targets: ex.targets || [] });
       for (const w of ex.warnings) log('tex mirror: ' + w);
       const m = await tc.mirror(vscode, dirOf(rootUri), cache, { maxMB, force, baseUri: ex.base, extra: ex.targets });
       if (m.tooBig) {
-        log(`tex mirror: ${m.files} files, ${(m.totalBytes / 1048576).toFixed(1)} MB is over paperMd.tex.maxMirrorMB (${maxMB})`);
+        log(`tex mirror: ${m.files} files, ${(m.totalBytes / 1048576).toFixed(1)} MB is over fastDocViewer.tex.maxMirrorMB (${maxMB})`);
         return { ok: false, banner: S.mirrorTooBig(rootUri.path.split('/').pop(), (m.totalBytes / 1048576).toFixed(0), maxMB) };
       }
       log(`tex mirror base: ${ex.base.path}${ex.relRoot ? ' (root folder at ' + ex.relRoot + ')' : ''}${m.extFolders && m.extFolders.length ? '; external folders: ' + m.extFolders.join(', ') : ''}${ex.targets.length ? '; ' + ex.targets.length + ' external refs' : ''}`);
@@ -396,7 +396,7 @@ class FollowPanel {
   }
 
   replaceMode() {
-    return vscode.workspace.getConfiguration('paperMd').get('followPanel.replaceTextTab');
+    return vscode.workspace.getConfiguration('fastDocViewer').get('followPanel.replaceTextTab');
   }
 
   open(document, reveal, column, extraUri) {
@@ -409,7 +409,7 @@ class FollowPanel {
     const t0 = Date.now();
     const replace = this.replaceMode();
     const roots = rootsFor(this.ctx, extraUri || (document && document.uri));
-    const panel = vscode.window.createWebviewPanel(FOLLOW_TYPE, 'Paper MD',
+    const panel = vscode.window.createWebviewPanel(FOLLOW_TYPE, 'Fast Document Viewer',
       { viewColumn: replace && column ? column : vscode.ViewColumn.Beside, preserveFocus: !replace },
       { enableScripts: true, retainContextWhenHidden: true, enableFindWidget: true, localResourceRoots: roots });
     this.ctx.subscriptions.push(panel);
@@ -493,7 +493,7 @@ class FollowPanel {
   }
 
   texMode() {
-    const c = vscode.workspace.getConfiguration('paperMd');
+    const c = vscode.workspace.getConfiguration('fastDocViewer');
     return !!c.get('tex.enabled') && !!c.get('followPanel.replaceTextTab');
   }
 
@@ -601,7 +601,7 @@ class FollowPanel {
   }
 
   pdfMode() {
-    const c = vscode.workspace.getConfiguration('paperMd');
+    const c = vscode.workspace.getConfiguration('fastDocViewer');
     return !!c.get('pdf.enabled') && !!c.get('followPanel.replaceTextTab');
   }
 
@@ -615,7 +615,7 @@ class FollowPanel {
     const name = uri.path.split('/').pop();
     try {
       if (!this.panel) {
-        if (this.userClosed || !vscode.workspace.getConfiguration('paperMd').get('followPanel.autoOpen')) {
+        if (this.userClosed || !vscode.workspace.getConfiguration('fastDocViewer').get('followPanel.autoOpen')) {
           log(`pdf ${name}: no panel (closed by user or autoOpen off)`);
           return;
         }
@@ -658,7 +658,7 @@ class FollowPanel {
   }
 
   htmlMode() {
-    const c = vscode.workspace.getConfiguration('paperMd');
+    const c = vscode.workspace.getConfiguration('fastDocViewer');
     return !!c.get('html.enabled') && !!c.get('followPanel.replaceTextTab');
   }
 
@@ -705,7 +705,7 @@ class FollowPanel {
       log(`editor change ${name}: updating panel` + (replace ? ' in place' : ''));
       if (!this.doc || this.doc.uri.toString() !== doc.uri.toString()) bg(this.showDoc(doc), 'show');
       if (replace) this.panel.reveal(editor.viewColumn, false);
-    } else if (!this.userClosed && vscode.workspace.getConfiguration('paperMd').get('followPanel.autoOpen')) {
+    } else if (!this.userClosed && vscode.workspace.getConfiguration('fastDocViewer').get('followPanel.autoOpen')) {
       log(`editor change ${name}: opening panel` + (replace ? ' in place' : ' beside'));
       this.open(doc, false, editor.viewColumn);
     } else {
@@ -848,7 +848,7 @@ const ENABLE_KEYS = ['followPanel.autoOpen', 'followPanel.replaceTextTab', 'pdf.
 const PREV_KEY = 'enableAll.previous';
 
 async function enableAll(ctx) {
-  const cfg = vscode.workspace.getConfiguration('paperMd');
+  const cfg = vscode.workspace.getConfiguration('fastDocViewer');
   const wb = vscode.workspace.getConfiguration();
   const settings = {};
   for (const k of ENABLE_KEYS) { const v = cfg.inspect(k); settings[k] = v && v.globalValue !== undefined ? v.globalValue : null; }
@@ -871,7 +871,7 @@ async function enableAll(ctx) {
 async function undoEnableAll(ctx) {
   const prev = ctx.globalState.get(PREV_KEY);
   if (!prev) return;
-  const cfg = vscode.workspace.getConfiguration('paperMd');
+  const cfg = vscode.workspace.getConfiguration('fastDocViewer');
   const wb = vscode.workspace.getConfiguration();
   try {
     for (const k of ENABLE_KEYS) await cfg.update(k, prev.settings[k] === null ? undefined : prev.settings[k], GLOBAL);
@@ -882,17 +882,46 @@ async function undoEnableAll(ctx) {
   } catch (e) { log('undo enableAll: ' + (e && e.message)); }
 }
 
+// Copy settings saved under the old `paperMd.*` IDs to `fastDocViewer.*` once. VS Code cannot write to an
+// unregistered key, so the old lines are left for the user to delete.
+async function migrateOldSettings(ctx) {
+  if (ctx.globalState.get('migratedFromPaperMd')) return;
+  let copied = 0;
+  const targets = [[vscode.ConfigurationTarget.Global, 'globalValue']];
+  if (vscode.workspace.workspaceFolders && vscode.workspace.isTrusted !== false) targets.push([vscode.ConfigurationTarget.Workspace, 'workspaceValue']);
+  for (const [target, field] of targets) {
+    for (const k of U.SETTING_SUFFIXES) {
+      try {
+        const oldV = vscode.workspace.getConfiguration(U.OLD_PREFIX).inspect(k);
+        const newV = vscode.workspace.getConfiguration(U.NEW_PREFIX).inspect(k);
+        if (oldV && oldV[field] !== undefined && newV && newV[field] === undefined) {
+          await vscode.workspace.getConfiguration(U.NEW_PREFIX).update(k, oldV[field], target);
+          copied++;
+        }
+      } catch (e) { log('migrate ' + k + ': ' + (e && e.message)); }
+    }
+  }
+  try {
+    const wb = vscode.workspace.getConfiguration('workbench');
+    const cur = wb.inspect('editorAssociations');
+    const m = U.migrateAssociations(cur && cur.globalValue);
+    if (m.changed) { await wb.update('editorAssociations', m.value, vscode.ConfigurationTarget.Global); copied++; }
+  } catch (e) { log('migrate associations: ' + (e && e.message)); }
+  await ctx.globalState.update('migratedFromPaperMd', true);
+  if (copied) vscode.window.showInformationMessage(S.migrated(copied));
+}
+
 async function firstRun(ctx) {
   if (ctx.globalState.get('firstRunDone')) return;
   const pick = await vscode.window.showInformationMessage(S.firstRun, S.turnOn, S.openGuide, S.notNow);
   await ctx.globalState.update('firstRunDone', true); // never ask again once answered or dismissed
-  if (pick === S.turnOn) await vscode.commands.executeCommand('paperMd.enableAll');
-  else if (pick === S.openGuide) await vscode.commands.executeCommand('workbench.action.openWalkthrough', 'toqitahamid.fast-document-viewer#paperMd.gettingStarted');
+  if (pick === S.turnOn) await vscode.commands.executeCommand('fastDocViewer.enableAll');
+  else if (pick === S.openGuide) await vscode.commands.executeCommand('workbench.action.openWalkthrough', 'toqitahamid.fast-document-viewer#fastDocViewer.gettingStarted');
 }
 
 function activate(ctx) {
   const ta = Date.now();
-  if (!channel) { channel = vscode.window.createOutputChannel('Paper MD'); ctx.subscriptions.push(channel); }
+  if (!channel) { channel = vscode.window.createOutputChannel('Fast Document Viewer'); ctx.subscriptions.push(channel); }
   const follow = new Manager(ctx);
   manager = follow;
   const pollTimer = setInterval(() => follow.poll(), 1500);
@@ -916,9 +945,9 @@ function activate(ctx) {
       follow.checkTabs();
     }),
     vscode.window.tabGroups.onDidChangeTabGroups(() => follow.checkTabs()),
-    vscode.commands.registerCommand('paperMd.openFollowPanel', () => follow.active().open(activeMd(), true)),
-    vscode.commands.registerCommand('paperMd.enableAll', () => enableAll(ctx)),
-    vscode.commands.registerCommand('paperMd.recompileTex', async () => {
+    vscode.commands.registerCommand('fastDocViewer.openFollowPanel', () => follow.active().open(activeMd(), true)),
+    vscode.commands.registerCommand('fastDocViewer.enableAll', () => enableAll(ctx)),
+    vscode.commands.registerCommand('fastDocViewer.recompileTex', async () => {
       const F = follow.active();
       const ed = vscode.window.activeTextEditor;
       const shownTex = !!(F.panel && F.current && F.current.kind === 'tex');
@@ -933,13 +962,13 @@ function activate(ctx) {
       if (shownTex && F.compileRoot && F.compileRoot.toString() !== root.toString()) F.compileRoot = root;
       F.compileRootNow(root, true);
     }),
-    vscode.commands.registerCommand('paperMd.openTexLog', () => {
+    vscode.commands.registerCommand('fastDocViewer.openTexLog', () => {
       const F = follow.active();
       const p = F.lastLog || (F.compileRoot && require('path').join(F.cacheDir(F.compileRoot), 'out', F.compileRoot.path.split('/').pop().replace(/\.tex$/i, '.log')));
       if (p && require('fs').existsSync(p)) bg(vscode.window.showTextDocument(vscode.Uri.file(p), { preview: true }), 'showTextDocument');
       else { log('tex log: none yet'); if (channel) channel.show(true); }
     }),
-    vscode.commands.registerCommand('paperMd.openAsText', (arg) => {
+    vscode.commands.registerCommand('fastDocViewer.openAsText', (arg) => {
       const F = follow.active();
       const h = F.htmlPanel;
       let uri = arg instanceof vscode.Uri ? arg : undefined;
@@ -960,7 +989,7 @@ function activate(ctx) {
       bg(vscode.window.showTextDocument(uri, { viewColumn: col, preview: false }), 'showTextDocument');
     }),
     // From a .md/.tex/.html text tab (title-bar preview button): back to the rendered view.
-    vscode.commands.registerCommand('paperMd.showPaper', (uri) => {
+    vscode.commands.registerCommand('fastDocViewer.showPaper', (uri) => {
       const ed = vscode.window.activeTextEditor;
       const doc = ed && (!uri || ed.document.uri.toString() === uri.toString()) ? ed.document : undefined;
       if (!doc) return;
@@ -974,6 +1003,7 @@ function activate(ctx) {
   // A Markdown text editor may already be active when the extension starts.
   follow.onEditorChange(vscode.window.activeTextEditor);
   follow.checkTabs();
+  migrateOldSettings(ctx).catch((e) => log('migrate: ' + (e && e.message)));
   firstRun(ctx).catch((e) => log('first run: ' + (e && e.message)));
   log(`activated in ${Date.now() - ta} ms`);
 }

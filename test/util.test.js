@@ -122,3 +122,18 @@ test('strings module is a plain object of strings and functions', () => {
   assert.equal(typeof strings.htmlRestricted, 'string');
   assert.match(strings.pdfTooBig('a.pdf', 300, 200), /300 MB/);
 });
+
+test('migrateAssociations renames the old custom-editor ID (object and array forms)', () => {
+  const o = u.migrateAssociations({ '*.md': 'paperMd.viewer', '*.pdf': 'default' });
+  assert.deepEqual(o, { value: { '*.md': 'fastDocViewer.viewer', '*.pdf': 'default' }, changed: true });
+  const a = u.migrateAssociations([{ viewType: 'paperMd.viewer', filenamePattern: '*.md' }, { viewType: 'default', filenamePattern: '*.pdf' }]);
+  assert.equal(a.changed, true); assert.equal(a.value[0].viewType, 'fastDocViewer.viewer'); assert.equal(a.value[1].viewType, 'default');
+  const same = { '*.pdf': 'default' };
+  assert.deepEqual(u.migrateAssociations(same), { value: same, changed: false });
+  assert.deepEqual(u.migrateAssociations(undefined), { value: undefined, changed: false });
+});
+
+test('migration covers every setting declared in package.json', () => {
+  const props = Object.keys(require('../package.json').contributes.configuration.properties).map((k) => k.replace(/^fastDocViewer\./, ''));
+  assert.deepEqual([...u.SETTING_SUFFIXES].sort(), props.sort());
+});

@@ -1,6 +1,6 @@
 ## Optional: a real LaTeX PDF
 
-The default LaTeX view is a quick preview. For the exact PDF, switch to compile mode in Settings: search for `paperMd.tex.mode` and choose `compile`.
+The default LaTeX view is a quick preview. For the exact PDF, switch to compile mode in Settings: search for `fastDocViewer.tex.mode` and choose `compile`.
 
 You need TeX on your own computer:
 

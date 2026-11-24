@@ -1,6 +1,6 @@
 {
   "name": "fast-document-viewer",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "description": "%extension.description%",
   "main": "./extension.js",
   "icon": "media/icon.png",
@@ -41,18 +41,18 @@
     "Other"
   ],
   "activationEvents": [
-    "onCustomEditor:paperMd.viewer",
+    "onCustomEditor:fastDocViewer.viewer",
     "onLanguage:markdown",
     "onLanguage:html",
     "onLanguage:latex",
     "onLanguage:tex",
-    "onCommand:paperMd.openFollowPanel",
+    "onCommand:fastDocViewer.openFollowPanel",
     "onStartupFinished"
   ],
   "contributes": {
     "customEditors": [
       {
-        "viewType": "paperMd.viewer",
+        "viewType": "fastDocViewer.viewer",
         "displayName": "%customEditor.displayName%",
         "priority": "option",
         "selector": [
@@ -67,36 +67,36 @@
     ],
     "commands": [
       {
-        "command": "paperMd.enableAll",
+        "command": "fastDocViewer.enableAll",
         "title": "%command.enableAll%",
         "category": "%command.category%"
       },
       {
-        "command": "paperMd.showPaper",
+        "command": "fastDocViewer.showPaper",
         "title": "%command.showPaper%",
         "category": "%command.category%",
         "shortTitle": "%command.showPaper.short%",
         "icon": "$(open-preview)"
       },
       {
-        "command": "paperMd.openFollowPanel",
+        "command": "fastDocViewer.openFollowPanel",
         "title": "%command.openFollowPanel%",
         "category": "%command.category%"
       },
       {
-        "command": "paperMd.openAsText",
+        "command": "fastDocViewer.openAsText",
         "title": "%command.openAsText%",
         "category": "%command.category%",
         "shortTitle": "%command.openAsText.short%",
         "icon": "$(edit)"
       },
       {
-        "command": "paperMd.recompileTex",
+        "command": "fastDocViewer.recompileTex",
         "title": "%command.recompileTex%",
         "category": "%command.category%"
       },
       {
-        "command": "paperMd.openTexLog",
+        "command": "fastDocViewer.openTexLog",
         "title": "%command.openTexLog%",
         "category": "%command.category%"
       }
@@ -104,47 +104,47 @@
     "configuration": {
       "title": "Fast Document Viewer",
       "properties": {
-        "paperMd.followPanel.autoOpen": {
+        "fastDocViewer.followPanel.autoOpen": {
           "type": "boolean",
           "default": false,
           "order": 1,
-          "description": "%setting.paperMd.followPanel.autoOpen.desc%",
-          "markdownDescription": "%setting.paperMd.followPanel.autoOpen.md%"
+          "description": "%setting.fastDocViewer.followPanel.autoOpen.desc%",
+          "markdownDescription": "%setting.fastDocViewer.followPanel.autoOpen.md%"
         },
-        "paperMd.followPanel.replaceTextTab": {
+        "fastDocViewer.followPanel.replaceTextTab": {
           "type": "boolean",
           "default": false,
           "order": 2,
-          "description": "%setting.paperMd.followPanel.replaceTextTab.desc%",
-          "markdownDescription": "%setting.paperMd.followPanel.replaceTextTab.md%"
+          "description": "%setting.fastDocViewer.followPanel.replaceTextTab.desc%",
+          "markdownDescription": "%setting.fastDocViewer.followPanel.replaceTextTab.md%"
         },
-        "paperMd.pdf.enabled": {
+        "fastDocViewer.pdf.enabled": {
           "type": "boolean",
           "default": false,
           "order": 3,
-          "description": "%setting.paperMd.pdf.enabled.desc%",
-          "markdownDescription": "%setting.paperMd.pdf.enabled.md%"
+          "description": "%setting.fastDocViewer.pdf.enabled.desc%",
+          "markdownDescription": "%setting.fastDocViewer.pdf.enabled.md%"
         },
-        "paperMd.html.enabled": {
+        "fastDocViewer.html.enabled": {
           "type": "boolean",
           "default": false,
           "order": 4,
-          "description": "%setting.paperMd.html.enabled.desc%",
-          "markdownDescription": "%setting.paperMd.html.enabled.md%"
+          "description": "%setting.fastDocViewer.html.enabled.desc%",
+          "markdownDescription": "%setting.fastDocViewer.html.enabled.md%"
         },
-        "paperMd.tex.enabled": {
+        "fastDocViewer.tex.enabled": {
           "type": "boolean",
           "default": false,
           "order": 5,
-          "description": "%setting.paperMd.tex.enabled.desc%",
-          "markdownDescription": "%setting.paperMd.tex.enabled.md%"
+          "description": "%setting.fastDocViewer.tex.enabled.desc%",
+          "markdownDescription": "%setting.fastDocViewer.tex.enabled.md%"
         },
-        "paperMd.tex.mode": {
+        "fastDocViewer.tex.mode": {
           "type": "string",
           "default": "html",
           "order": 6,
-          "description": "%setting.paperMd.tex.mode.desc%",
-          "markdownDescription": "%setting.paperMd.tex.mode.md%",
+          "description": "%setting.fastDocViewer.tex.mode.desc%",
+          "markdownDescription": "%setting.fastDocViewer.tex.mode.md%",
           "enum": [
             "html",
             "compile"
@@ -154,38 +154,38 @@
             "%setting.tex.mode.compile%"
           ]
         },
-        "paperMd.tex.texPath": {
+        "fastDocViewer.tex.texPath": {
           "type": "string",
           "default": "",
           "order": 7,
-          "description": "%setting.paperMd.tex.texPath.desc%",
-          "markdownDescription": "%setting.paperMd.tex.texPath.md%",
+          "description": "%setting.fastDocViewer.tex.texPath.desc%",
+          "markdownDescription": "%setting.fastDocViewer.tex.texPath.md%",
           "scope": "machine"
         },
-        "paperMd.tex.maxMirrorMB": {
+        "fastDocViewer.tex.maxMirrorMB": {
           "type": "number",
           "default": 200,
           "order": 8,
-          "description": "%setting.paperMd.tex.maxMirrorMB.desc%",
-          "markdownDescription": "%setting.paperMd.tex.maxMirrorMB.md%",
+          "description": "%setting.fastDocViewer.tex.maxMirrorMB.desc%",
+          "markdownDescription": "%setting.fastDocViewer.tex.maxMirrorMB.md%",
           "minimum": 1
         },
-        "paperMd.allowRemoteImages": {
+        "fastDocViewer.allowRemoteImages": {
           "type": "boolean",
           "default": true,
           "order": 9,
-          "description": "%setting.paperMd.allowRemoteImages.desc%",
-          "markdownDescription": "%setting.paperMd.allowRemoteImages.md%"
+          "description": "%setting.fastDocViewer.allowRemoteImages.desc%",
+          "markdownDescription": "%setting.fastDocViewer.allowRemoteImages.md%"
         },
-        "paperMd.customCss": {
+        "fastDocViewer.customCss": {
           "type": "string",
           "default": "",
           "order": 10,
-          "description": "%setting.paperMd.customCss.desc%",
-          "markdownDescription": "%setting.paperMd.customCss.md%",
+          "description": "%setting.fastDocViewer.customCss.desc%",
+          "markdownDescription": "%setting.fastDocViewer.customCss.md%",
           "scope": "machine"
         },
-        "paperMd.theme": {
+        "fastDocViewer.theme": {
           "type": "string",
           "enum": [
             "paper",
@@ -194,37 +194,37 @@
           "default": "paper",
           "order": 11,
           "enumDescriptions": [
-            "%setting.paperMd.theme.paper%",
-            "%setting.paperMd.theme.auto%"
+            "%setting.fastDocViewer.theme.paper%",
+            "%setting.fastDocViewer.theme.auto%"
           ],
-          "markdownDescription": "%setting.paperMd.theme.md%",
-          "description": "%setting.paperMd.theme.desc%"
+          "markdownDescription": "%setting.fastDocViewer.theme.md%",
+          "description": "%setting.fastDocViewer.theme.desc%"
         }
       }
     },
     "menus": {
       "editor/title": [
         {
-          "command": "paperMd.openAsText",
-          "when": "activeWebviewPanelId == 'paperMd.follow' || activeWebviewPanelId == 'paperMd.html'",
+          "command": "fastDocViewer.openAsText",
+          "when": "activeWebviewPanelId == 'fastDocViewer.follow' || activeWebviewPanelId == 'fastDocViewer.html'",
           "group": "navigation"
         },
         {
-          "command": "paperMd.showPaper",
+          "command": "fastDocViewer.showPaper",
           "when": "!activeWebviewPanelId && resourceExtname =~ /^\\.(md|markdown|tex|html?)$/",
           "group": "navigation"
         }
       ],
       "commandPalette": [
         {
-          "command": "paperMd.showPaper",
+          "command": "fastDocViewer.showPaper",
           "when": "resourceExtname =~ /^\\.(md|markdown|tex|html?)$/"
         }
       ]
     },
     "walkthroughs": [
       {
-        "id": "paperMd.gettingStarted",
+        "id": "fastDocViewer.gettingStarted",
         "title": "%walkthrough.title%",
         "description": "%walkthrough.description%",
         "steps": [
@@ -236,7 +236,7 @@
               "markdown": "media/walkthrough/enable.md"
             },
             "completionEvents": [
-              "onCommand:paperMd.enableAll"
+              "onCommand:fastDocViewer.enableAll"
             ]
           },
           {
@@ -295,8 +295,8 @@
       "supported": "limited",
       "description": "%capabilities.untrusted%",
       "restrictedConfigurations": [
-        "paperMd.tex.mode",
-        "paperMd.tex.texPath"
+        "fastDocViewer.tex.mode",
+        "fastDocViewer.tex.texPath"
       ]
     }
   }

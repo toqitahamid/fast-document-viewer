@@ -21,7 +21,7 @@ Run `npm run check && npm test` before every commit. CI runs the same commands p
 
 ## Rules
 
-- Settings, command and custom-editor IDs keep the `paperMd.` prefix. Do not rename them without a migration.
+- Settings, command and custom-editor IDs use the `fastDocViewer.` prefix (before 0.9.0 it was `paperMd.`; `src/util.js` migrates old values). Do not rename IDs again without a migration.
 - No network requests, telemetry or `-shell-escape`. Webview CSP changes need a security note in the PR.
 - Compile mode never writes into the user's project. It only writes under the extension's global storage.
 - Add or update a test for every behaviour change. Mark a known, unfixed bug with `{ todo: '...' }` instead of deleting the test.

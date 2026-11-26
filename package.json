@@ -1,6 +1,6 @@
 {
   "name": "fast-document-viewer",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "%extension.description%",
   "main": "./extension.js",
   "icon": "media/icon.png",

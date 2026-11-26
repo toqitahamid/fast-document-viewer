@@ -21,7 +21,7 @@ node_modules/highlight.js/types/**
 node_modules/highlight.js/lib/languages/**
 !node_modules/highlight.js/lib/languages/{python,bash,javascript,typescript,json,yaml,c,cpp,xml,css,latex,sql,diff,markdown}.js
 node_modules/markdown-it/dist/*
-!node_modules/markdown-it/dist/index.cjs.js
+!node_modules/markdown-it/dist/markdown-it.cjs.js
 node_modules/markdown-it/lib/**
 node_modules/markdown-it/bin/**
 node_modules/markdown-it/index.mjs

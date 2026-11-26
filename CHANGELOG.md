@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.9.3]
+
+### Fixed
+
+- The extension failed to activate in 0.9.2 with `Cannot find module .../markdown-it/dist/markdown-it.cjs.js`, so nothing opened in the viewer. The package leaked out markdown-it 15's entry file. CI now loads the built package to catch this.
+
 ## [0.9.2]
 
 ### Fixed

@@ -168,7 +168,12 @@ body.vscode-high-contrast:not(.vscode-high-contrast-light) #content { border: 1p
 #pdf .textLayer span, #pdf .textLayer br { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; }
 #pdf .textLayer ::selection { background: rgba(0, 100, 255, 0.25); }
 
+#pdf .annotationLayer { position: absolute; inset: 0; overflow: hidden; z-index: 2; pointer-events: none; }
+#pdf .annotationLayer a { position: absolute; display: block; background: transparent; cursor: pointer; pointer-events: auto; text-decoration: none; }
+#pdf .annotationLayer a:hover { outline: 1px solid rgba(0, 100, 255, 0.5); }
+
 @media print {
+  #pdf .annotationLayer { display: none !important; }
   body, body.fdv-follow-theme.vscode-dark, body.vscode-high-contrast:not(.vscode-high-contrast-light) {
     --paper-bg: #fff; --paper-fg: #000; --paper-link: #000080; --paper-code-bg: #f5f5f5; --paper-soft-bg: #eee;
     --paper-border: #bbb; --paper-muted: #595959; --paper-mark: #fff3a0; --paper-error: #b00000;

@@ -127,7 +127,15 @@ function migrateAssociations(cur) {
   return { value: cur, changed: false };
 }
 
+// Links that may leave a PDF: web and mail only, never code-executing or local schemes.
+function isSafeExternalUrl(s) {
+  if (typeof s !== 'string' || !s || s.length > 2048) return false;
+  if (/[\u0000-\u001f\u007f-\u009f\s]/.test(s)) return false;
+  return /^(https?|mailto):/i.test(s);
+}
+
 module.exports = {
+  isSafeExternalUrl,
   OLD_PREFIX, NEW_PREFIX, SETTING_SUFFIXES, migrateAssociations,
   isRealScheme, makeNonce, escHtml, stripStyleEnd, stripScriptEnd, shellCsp, htmlPageCsp, injectIntoHead, buildHtmlPage,
   pathUnder, inRoots, uniqueBy, mirrorHit, recentlySaved, pruneSaves, SAVE_WINDOW_MS, MAX_POST_BYTES, tooBigToPost, hasTabFor,

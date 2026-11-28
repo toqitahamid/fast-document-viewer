@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Links inside PDFs are clickable. Internal links scroll to the target page. Web and mail links open outside the editor, and other schemes are ignored.
+
 ## [0.9.3]
 
 ### Fixed

@@ -137,3 +137,9 @@ test('migration covers every setting declared in package.json', () => {
   const props = Object.keys(require('../package.json').contributes.configuration.properties).map((k) => k.replace(/^fastDocViewer\./, ''));
   assert.deepEqual([...u.SETTING_SUFFIXES].sort(), props.sort());
 });
+
+test('isSafeExternalUrl allows only http, https and mailto', () => {
+  for (const s of ['http://a.b', 'https://a.b/c?d=1#e', 'mailto:x@y.z', 'HTTPS://A.B']) assert.ok(u.isSafeExternalUrl(s), s);
+  for (const s of ['javascript:alert(1)', 'data:text/html,x', 'file:///etc/passwd', 'vscode://x/y', 'command:foo', 'cmd:x',
+    'a/b.pdf', '#x', '', 'https://a.b/\nx', 'https://a b', 'https://a.b/' + 'x'.repeat(2100), null, undefined, 5, {}]) assert.ok(!u.isSafeExternalUrl(s), String(s).slice(0, 30));
+});

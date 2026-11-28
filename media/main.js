@@ -81,8 +81,59 @@
     return null;
   }
 
+  // PDF link policy: only these schemes leave the webview (the host checks again).
+  function isAllowedPdfUrl(s) {
+    if (typeof s !== 'string' || !s || s.length > 2048) return false;
+    if (/[\u0000-\u001f\u007f-\u009f\s]/.test(s)) return false;
+    return /^(https?|mailto):/i.test(s);
+  }
+
+  // Link rectangle (PDF user space, as returned by pdf.js) to percentages of the page box.
+  // vpRect is the result of viewport.convertToViewportRectangle; its corners may be in any order.
+  function linkBox(vpRect, width, height) {
+    if (!Array.isArray(vpRect) || vpRect.length < 4 || !(width > 0) || !(height > 0)) return null;
+    const [x1, y1, x2, y2] = vpRect.map(Number);
+    if (![x1, y1, x2, y2].every(Number.isFinite)) return null;
+    const l = Math.min(x1, x2), r = Math.max(x1, x2), tp = Math.min(y1, y2), b = Math.max(y1, y2);
+    if (r - l < 0.5 || b - tp < 0.5) return null;
+    const pct = (v, d) => Math.max(0, Math.min(100, (v / d) * 100));
+    const left = pct(l, width), top = pct(tp, height);
+    return { left, top, width: Math.min(100 - left, pct(r - l, width)), height: Math.min(100 - top, pct(b - tp, height)) };
+  }
+
+  // Internal destination (named string or explicit array) to { page: 0-based index, top: fraction
+  // of the page height to scroll to, 0 = page top }. Returns null when it cannot be resolved.
+  async function resolvePdfDest(doc, dest, pageH) {
+    try {
+      let d = dest;
+      if (typeof d === 'string') d = await doc.getDestination(d);
+      if (!Array.isArray(d) || !d.length) return null;
+      const ref = d[0];
+      let page = -1;
+      if (Number.isInteger(ref)) page = ref;
+      else if (ref && typeof ref === 'object') page = await doc.getPageIndex(ref);
+      if (!Number.isInteger(page) || page < 0 || page >= doc.numPages) return null;
+      let top = 0;
+      const name = d[1] && d[1].name;
+      const y = name === 'XYZ' ? d[3] : (name === 'FitH' || name === 'FitBH') ? d[2] : null;
+      if (typeof y === 'number' && Number.isFinite(y) && pageH > 0) top = Math.max(0, Math.min(1, (pageH - y) / pageH));
+      return { page, top };
+    } catch (e) { return null; }
+  }
+
+  // Named actions that move within the document, as 0-based page index (or null).
+  function namedActionPage(action, cur, count) {
+    switch (action) {
+      case 'NextPage': return cur + 1 < count ? cur + 1 : null;
+      case 'PrevPage': return cur > 0 ? cur - 1 : null;
+      case 'FirstPage': return 0;
+      case 'LastPage': return count > 0 ? count - 1 : null;
+      default: return null;
+    }
+  }
+
   if (typeof module === 'object' && module && module.exports) {
-    module.exports = { toBytes, isHostMessage, pagesToEvict, createLru, figKey, figVersioned, resolveAnchor, safeDecode, MAX_PDF_BYTES, PAGE_WINDOW, FIG_CACHE_MAX };
+    module.exports = { toBytes, isHostMessage, pagesToEvict, createLru, figKey, figVersioned, resolveAnchor, safeDecode, isAllowedPdfUrl, linkBox, resolvePdfDest, namedActionPage, MAX_PDF_BYTES, PAGE_WINDOW, FIG_CACHE_MAX };
   }
   if (typeof acquireVsCodeApi !== 'function') return;
 
@@ -180,6 +231,7 @@
     pg.gen = 0;
     if (pg.canvas) { pg.canvas.width = 0; pg.canvas.height = 0; pg.canvas.remove(); pg.canvas = null; }
     if (pg.tl) { pg.tl.remove(); pg.tl = null; }
+    if (pg.al) { pg.al.remove(); pg.al = null; }
     if (pg.page) { try { pg.page.cleanup(); } catch (e) { /* ignore */ } pg.page = null; }
   }
 
@@ -257,6 +309,7 @@
         shownSent = 0;
       }
       await buildTextLayer(p, pg, page, vp, gen);
+      await buildLinkLayer(p, pg, page, vp, gen, i);
     } catch (e) {
       if (pg.gen === gen) pg.gen = -1; // allow a retry
       if (!(e && e.name === 'RenderingCancelledException')) vscode.postMessage({ type: 'pdfError', message: 'page ' + (i + 1) + ': ' + (e && e.message) });
@@ -290,6 +343,70 @@
       pg.tlNew = null; pg.tlTask = null;
       // A cancelled build is normal (zoom changed); a failed one only costs selection on this page.
     }
+  }
+
+
+  // Clickable links over the page (Link annotations). Positions are percentages of the page box,
+  // so the layer follows zoom at once and is rebuilt on the next render. Anchors carry no
+  // navigation of their own: the click handler routes them (see linkInfo).
+  const linkInfo = new WeakMap();
+  async function buildLinkLayer(p, pg, page, vp, gen, index) {
+    if (typeof page.getAnnotations !== 'function') return;
+    try {
+      const anns = await page.getAnnotations({ intent: 'display' });
+      if (pdf !== p || p.gen !== gen || pg.gen !== gen) return;
+      const layer = document.createElement('div');
+      layer.className = 'annotationLayer';
+      for (const a of anns) {
+        if (!a || a.subtype !== 'Link' || !a.rect) continue;
+        const box = linkBox(vp.convertToViewportRectangle(a.rect), vp.width, vp.height);
+        if (!box) continue;
+        let info = null;
+        if (typeof a.url === 'string' && a.url) {
+          if (!isAllowedPdfUrl(a.url)) continue;
+          info = { url: a.url };
+        } else if (a.dest) info = { dest: a.dest };
+        else if (typeof a.action === 'string' && namedActionPage(a.action, index, p.doc.numPages) !== null) info = { action: a.action, from: index };
+        if (!info) continue;
+        const el = document.createElement('a');
+        el.setAttribute('href', info.url || '#');
+        el.rel = 'noopener noreferrer';
+        el.style.left = box.left + '%'; el.style.top = box.top + '%';
+        el.style.width = box.width + '%'; el.style.height = box.height + '%';
+        linkInfo.set(el, info);
+        layer.appendChild(el);
+      }
+      if (pg.al) pg.al.remove();
+      pg.al = layer;
+      pg.div.appendChild(layer);
+    } catch (e) { /* links are optional */ }
+  }
+
+  async function followPdfLink(info) {
+    if (!pdf) return;
+    const p = pdf;
+    if (info.url) {
+      if (isAllowedPdfUrl(info.url)) vscode.postMessage({ type: 'pdfLink', href: info.url });
+      return;
+    }
+    let target = null;
+    if (info.action) {
+      const page = namedActionPage(info.action, info.from, p.doc.numPages);
+      if (page !== null) target = { page, top: 0 };
+    } else if (info.dest) {
+      const first = p.pages[0];
+      target = await resolvePdfDest(p.doc, info.dest, 0);
+      if (target && target.top === 0) {
+        const pg = p.pages[target.page];
+        const h = (pg && pg.h) || (first && first.h) || 0;
+        const again = await resolvePdfDest(p.doc, info.dest, h);
+        if (again) target = again;
+      }
+    }
+    if (!target || pdf !== p) return;
+    const pg = p.pages[target.page];
+    if (!pg) return;
+    window.scrollTo(window.scrollX, Math.max(0, pg.div.offsetTop + target.top * pg.div.offsetHeight - 8));
   }
 
   function observe() {
@@ -371,7 +488,7 @@
         div.dataset.i = String(i);
         div.setAttribute('role', 'group');
         div.setAttribute('aria-label', 'Page ' + (i + 1) + ' of ' + doc.numPages);
-        p.pages.push({ div, canvas: null, page: null, tl: null, tlNew: null, tlTask: null, gen: 0, task: null, w: i === 0 ? v.width : 0, h: i === 0 ? v.height : 0 });
+        p.pages.push({ div, canvas: null, page: null, tl: null, tlNew: null, al: null, tlTask: null, gen: 0, task: null, w: i === 0 ? v.width : 0, h: i === 0 ? v.height : 0 });
         frag.appendChild(div);
       }
       const old = same ? pdf : null;
@@ -619,6 +736,11 @@
     const sel = window.getSelection();
     // A drag that ended on this link made a selection: do not follow the link.
     if (sel && !sel.isCollapsed && sel.containsNode(a, true)) return;
+    if (pdfEl && pdfEl.contains(a)) {
+      const info = linkInfo.get(a);
+      if (info) followPdfLink(info);
+      return; // PDF anchors never reach the generic branch
+    }
     const href = a.getAttribute('href');
     if (href.startsWith('#')) {
       const el = href.length > 1 && resolveAnchor(href.slice(1), (id) => document.getElementById(id), (n) => content.contains(n));

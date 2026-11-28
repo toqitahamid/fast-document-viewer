@@ -442,6 +442,12 @@ class FollowPanel {
         bg(vscode.window.showTextDocument(uri, { viewColumn: this.panel && this.panel.viewColumn, preview: false }), 'showTextDocument');
       } else if (m.type === 'copyText' && typeof m.text === 'string') {
         bg(vscode.env.clipboard.writeText(m.text), 'clipboard');
+      } else if (m.type === 'pdfLink') {
+        // From a PDF link annotation: web and mail links only, checked again here.
+        if (!U.isSafeExternalUrl(m.href)) return;
+        let uri;
+        try { uri = vscode.Uri.parse(m.href, true); } catch (e) { return; }
+        bg(vscode.env.openExternal(uri), 'openExternal');
       } else if (m.type === 'link' && typeof m.href === 'string' && this.doc) {
         openLink(m.href, this.doc, 'default');
       }
